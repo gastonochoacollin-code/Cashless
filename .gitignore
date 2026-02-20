@@ -1,0 +1,9 @@
+# .NET build
+**/bin/
+**/obj/
+
+# Local database
+Cashless.Api/cashless.db
+*.db
+*.sqlite
+*.sqlite3
