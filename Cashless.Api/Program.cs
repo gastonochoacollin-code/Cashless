@@ -158,8 +158,9 @@ app.MapGet("/api/reports1/top-products", async (CashlessContext db, HttpRequest 
 
 app.MapPost("/uid", (UidRequest req, IUidState uidState) =>
 {
-    uidState.SetLastUid((req.uid ?? "").Trim().ToUpperInvariant());
-    Console.WriteLine($"UID leído: { (req.uid ?? "").Trim().ToUpperInvariant() }");
+    var uid = (req.uid ?? "").Trim().ToUpperInvariant();
+    uidState.SetLastUid(uid);
+    Console.WriteLine($"UID leído: {uid}");
     return Results.Ok(new { ok = true });
 });
 
@@ -1434,6 +1435,7 @@ app.MapGet("/api/reports2/summary", async Task<IResult> (CashlessContext db, Htt
 
 
 app.Run();
+
 
 
 
