@@ -1,4 +1,10 @@
-requireSession();
+const session = requireSession();
+const role = String(session?.role || session?.Role || "");
+const isAdmin = role === "Admin" || role === "SuperAdmin";
+if(!isAdmin){
+  window.location.href = "/ops.html";
+  throw new Error("No admin role");
+}
 
 function $(id){ return document.getElementById(id); }
 

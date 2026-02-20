@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8">
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Admin · Cashless</title>
   <style>
@@ -56,6 +56,7 @@
 <body>
   <div class="wrap">
     <h1>🛠️ Administración <span id="jsDot" class="dot" title="JS cargado"></span></h1>
+    <div id="appMenu" class="meta" style="margin-bottom:12px"></div>
 
     <!-- Sesión -->
     <div class="card">
@@ -65,7 +66,7 @@
       </div>
 
       <div class="grid2" style="margin-top:10px">
-        <button class="alt" id="btnUid">📟 Leer pulsera</button>
+        <button class="alt" id="btnUid">🔎 Leer pulsera</button>
         <button class="red" id="btnLogout">🚪 Cerrar sesión</button>
       </div>
 
@@ -113,6 +114,7 @@
     </div>
   </div>
 
+  <script defer src="/common.js"></script>
   <!-- Admin JS (defer para asegurar DOM listo) -->
   <script defer src="/admin.js?v=final"></script>
 

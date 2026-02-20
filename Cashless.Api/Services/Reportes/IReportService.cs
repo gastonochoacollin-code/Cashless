@@ -6,10 +6,12 @@ public interface IReportService
 {
     Task<Report1SummaryResult> GetReports1SummaryAsync(CashlessContext db, int tenantId, DateTimeOffset fromDt, DateTimeOffset toDt, int? areaId);
     Task<List<Report1TopProductRow>> GetReports1TopProductsAsync(CashlessContext db, int tenantId, DateTimeOffset fromDt, DateTimeOffset toDt, int? areaId, int limit);
-    Task<ReportSummaryResult> GetReportsSummaryAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to);
-    Task<ReportTopProductsResult> GetReportsTopProductsAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to, int take);
+    Task<ReportSummaryResult> GetReportsSummaryAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to, int? areaId);
+    Task<ReportTopProductsResult> GetReportsTopProductsAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to, int? areaId, int take);
     Task<Report2SummaryResult> GetReports2SummaryAsync(CashlessContext db, int tenantId, DateTimeOffset fromDt, DateTimeOffset toDt);
     Task<List<SalesByAreaRow>> GetSalesByAreaAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to);
+    Task<List<ReportsByOperatorRow>> GetReportsByOperatorAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to, int? areaId);
+    Task<List<ReportsRecentRow>> GetReportsRecentAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to, int? areaId, int take);
 }
 
 public sealed record Report1SummaryResult(
@@ -72,4 +74,24 @@ public sealed record SalesByAreaRow(
     decimal TotalSold,
     decimal TotalTips,
     decimal AvgTicket
+);
+
+public sealed record ReportsByOperatorRow(
+    int? OperatorId,
+    string? OperatorName,
+    int TxCount,
+    decimal TotalSold,
+    decimal TotalTips
+);
+
+public sealed record ReportsRecentRow(
+    int Id,
+    DateTime CreatedAt,
+    int? AreaId,
+    string? AreaName,
+    int? OperatorId,
+    string? OperatorName,
+    string? UidMasked,
+    decimal Total,
+    decimal Tip
 );

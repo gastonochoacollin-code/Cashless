@@ -1,4 +1,4 @@
-﻿// wwwroot/reports.js
+// wwwroot/reports.js
 (() => {
   const API_BASE = window.location.origin;
   const el = (id) => document.getElementById(id);
@@ -60,23 +60,8 @@
     return data;
   }
 
-  async function getWithFallback(paths){
-    let lastErr = null;
-    let lastPath = null;
-    for (const p of paths){
-      try{
-        lastPath = p;
-        return await apiGet(`${API_BASE}${p}`);
-      } catch (e){
-        lastErr = e;
-        if (e.status !== 404) throw e;
-      }
-    }
-    const err = new Error("Endpoint no encontrado");
-    err.status = 404;
-    err.last = lastErr;
-    err.path = lastPath;
-    throw err;
+  async function getSingle(path){
+    return await apiGet(`${API_BASE}${path}`);
   }
 
   function normalizeSummary(s){
@@ -188,20 +173,13 @@
     el("rangePill").textContent = `${from} → ${to}`;
 
     try{
-      const summary = await getWithFallback([
-        `/api/reports/summary?from=${from}&to=${to}`,
-        `/api/reports2/summary?from=${from}&to=${to}`,
-        `/api/reports1/summary?from=${from}&to=${to}`
-      ]);
+      const summaryUrl = `/api/reports/summary?from=${from}&to=${to}`;
+      const topProductsUrl = `/api/reports/top-products?from=${from}&to=${to}&take=10`;
+      const salesByAreaUrl = `/api/reports/sales-by-area?from=${from}&to=${to}`;
 
-      const topResp = await getWithFallback([
-        `/api/reports/top-products?from=${from}&to=${to}&take=10`,
-        `/api/reports1/top-products?from=${from}&to=${to}&take=10`
-      ]);
-
-      const salesByArea = await getWithFallback([
-        `/api/reports/sales-by-area?from=${from}&to=${to}`
-      ]);
+      const summary = await getSingle(summaryUrl);
+      const topResp = await getSingle(topProductsUrl);
+      const salesByArea = await getSingle(salesByAreaUrl);
 
       const norm = normalizeSummary(summary);
       if (!norm) throw new Error("Respuesta inválida de summary");
@@ -210,20 +188,30 @@
       renderTop(normalizeTop(topResp));
       renderSalesByArea(salesByArea);
     } catch (e){
+      console.error("Reports error:", e);
+      renderSummary({ totalVendido: 0, totalPropina: 0, usuarios: 0, transacciones: 0 });
       if (e.status === 401) {
         showErr("Sesión expirada");
+        renderTop([]);
+        renderSalesByArea([]);
         return;
       }
       if (e.status === 404) {
         const failedPath = e.path || "endpoint desconocido";
         showErr(`404: ${failedPath}`);
+        renderTop([]);
+        renderSalesByArea([]);
         return;
       }
       if (e.status === 500) {
         showErr("Error del servidor. Intenta más tarde.");
+        renderTop([]);
+        renderSalesByArea([]);
         return;
       }
       showErr(e.message || "Error inesperado");
+      renderTop([]);
+      renderSalesByArea([]);
     }
   }
 

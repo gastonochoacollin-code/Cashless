@@ -1,7 +1,7 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Login · Cashless</title>
   <style>
@@ -42,11 +42,15 @@
 
       <div class="row" style="justify-content:space-between">
         <span class="pill" id="sess">Sesión: (ninguna)</span>
-        <button id="btnReloadOps" class="btn alt" type="button">Recargar operadores</button>
       </div>
 
-      <label for="opSelect">Operador</label>
-      <select id="opSelect"></select>
+      <div id="tenantBox" style="display:none">
+        <label for="tenantSelect">Tenant</label>
+        <select id="tenantSelect"></select>
+      </div>
+
+      <label for="operatorName">Operador</label>
+      <input id="operatorName" type="text" autocomplete="username" placeholder="Operador (nombre o ID)" />
 
       <label for="pin">NIP</label>
       <input id="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="••••" />
@@ -61,8 +65,6 @@
     </div>
   </div>
 
-  <!-- Puedes dejar common.js, pero este login NO depende de él -->
-  <script defer src="/common.js"></script>
   <script defer src="/login.js"></script>
 </body>
 </html>

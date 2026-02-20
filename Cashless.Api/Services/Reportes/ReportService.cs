@@ -81,7 +81,7 @@ public sealed class ReportService : IReportService
             .ToList();
     }
 
-    public async Task<ReportSummaryResult> GetReportsSummaryAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to)
+    public async Task<ReportSummaryResult> GetReportsSummaryAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to, int? areaId)
     {
         var fromUtc = from.UtcDateTime;
         var toUtc = to.UtcDateTime;
@@ -90,6 +90,9 @@ public sealed class ReportService : IReportService
 
         var chargesQ = db.Transactions
             .Where(x => x.TenantId == tenantId && x.Type == TransactionType.Charge && x.CreatedAt >= fromUtc && x.CreatedAt <= toUtc);
+
+        if (areaId.HasValue)
+            chargesQ = chargesQ.Where(x => x.AreaId == areaId.Value);
 
         var txCount = await chargesQ.CountAsync();
 
@@ -118,13 +121,16 @@ public sealed class ReportService : IReportService
         );
     }
 
-    public async Task<ReportTopProductsResult> GetReportsTopProductsAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to, int take)
+    public async Task<ReportTopProductsResult> GetReportsTopProductsAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to, int? areaId, int take)
     {
         var fromUtc = from.UtcDateTime;
         var toUtc = to.UtcDateTime;
 
         var baseQuery = db.SaleItems
             .Where(i => i.TenantId == tenantId && i.Sale.CreatedAt >= fromUtc && i.Sale.CreatedAt <= toUtc);
+
+        if (areaId.HasValue)
+            baseQuery = baseQuery.Where(i => i.Sale.AreaId == areaId.Value);
 
         List<ReportTopProductRow> rows;
 
@@ -244,8 +250,106 @@ public sealed class ReportService : IReportService
         return result;
     }
 
+    public async Task<List<ReportsByOperatorRow>> GetReportsByOperatorAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to, int? areaId)
+    {
+        var fromUtc = from.UtcDateTime;
+        var toUtc = to.UtcDateTime;
+
+        var q = db.Transactions
+            .Where(t => t.TenantId == tenantId && t.Type == TransactionType.Charge && t.CreatedAt >= fromUtc && t.CreatedAt <= toUtc);
+
+        if (areaId.HasValue)
+            q = q.Where(t => t.AreaId == areaId.Value);
+
+        var rows = await q
+            .GroupBy(t => t.OperatorId)
+            .Select(g => new
+            {
+                operatorId = g.Key,
+                txCount = g.Count(),
+                totalSold = g.Sum(x => (double?)x.Amount) ?? 0d,
+                totalTips = g.Sum(x => (double?)x.TipAmount) ?? 0d
+            })
+            .OrderByDescending(x => x.totalSold)
+            .ToListAsync();
+
+        var opIds = rows.Where(r => r.operatorId.HasValue).Select(r => r.operatorId!.Value).ToList();
+        var opNames = await db.Operators
+            .Where(o => o.TenantId == tenantId && opIds.Contains(o.Id))
+            .ToDictionaryAsync(o => o.Id, o => o.Name);
+
+        return rows
+            .Select(r => new ReportsByOperatorRow(
+                r.operatorId,
+                r.operatorId.HasValue && opNames.TryGetValue(r.operatorId.Value, out var name) ? name : null,
+                r.txCount,
+                ToDecimal(r.totalSold),
+                ToDecimal(r.totalTips)
+            ))
+            .ToList();
+    }
+
+    public async Task<List<ReportsRecentRow>> GetReportsRecentAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to, int? areaId, int take)
+    {
+        var fromUtc = from.UtcDateTime;
+        var toUtc = to.UtcDateTime;
+
+        var q = db.Transactions
+            .Where(t => t.TenantId == tenantId && t.Type == TransactionType.Charge && t.CreatedAt >= fromUtc && t.CreatedAt <= toUtc);
+
+        if (areaId.HasValue)
+            q = q.Where(t => t.AreaId == areaId.Value);
+
+        var list = await q
+            .OrderByDescending(t => t.CreatedAt)
+            .Take(take)
+            .Select(t => new
+            {
+                t.Id,
+                t.CreatedAt,
+                t.AreaId,
+                t.OperatorId,
+                t.CardUid,
+                t.Amount,
+                t.TipAmount
+            })
+            .ToListAsync();
+
+        var areaIds = list.Where(r => r.AreaId.HasValue).Select(r => r.AreaId!.Value).ToList();
+        var areaNames = await db.Areas
+            .Where(a => a.TenantId == tenantId && areaIds.Contains(a.Id))
+            .ToDictionaryAsync(a => a.Id, a => a.Name);
+
+        var opIds = list.Where(r => r.OperatorId.HasValue).Select(r => r.OperatorId!.Value).ToList();
+        var opNames = await db.Operators
+            .Where(o => o.TenantId == tenantId && opIds.Contains(o.Id))
+            .ToDictionaryAsync(o => o.Id, o => o.Name);
+
+        return list.Select(r => new ReportsRecentRow(
+            r.Id,
+            r.CreatedAt,
+            r.AreaId,
+            r.AreaId.HasValue && areaNames.TryGetValue(r.AreaId.Value, out var areaName) ? areaName : null,
+            r.OperatorId,
+            r.OperatorId.HasValue && opNames.TryGetValue(r.OperatorId.Value, out var opName) ? opName : null,
+            MaskUid(r.CardUid),
+            r.Amount,
+            r.TipAmount
+        )).ToList();
+    }
+
     private static decimal ToDecimal(double? value)
         => value.HasValue ? (decimal)value.Value : 0m;
+
+    private static string? MaskUid(string? uid)
+    {
+        if (string.IsNullOrWhiteSpace(uid)) return null;
+        var s = uid.Trim();
+        if (s.Length <= 4) return new string('*', s.Length);
+        var start = s.Substring(0, 4);
+        var end = s.Length > 2 ? s.Substring(s.Length - 2) : "";
+        return $"{start}…{end}";
+    }
 }
 
 

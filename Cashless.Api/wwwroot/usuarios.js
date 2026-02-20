@@ -13,7 +13,7 @@ const tbody = $("tbody");
 const countEl = $("count");
 const jsDot = $("jsDot");
 
-// Reasignación UI
+// ReasignaciÃ³n UI
 const selectedUserEl = $("selectedUser");
 const btnTakeLastUid = $("btnTakeLastUid");
 const uidPreviewEl = $("uidPreview");
@@ -42,27 +42,7 @@ function goAdmin(){ window.location.href = "/admin.html"; }
 function goBarra(){ window.location.href = "/barra.html"; }
 
 async function api(path, opts = {}){
-  if(!session?.operatorId || !session?.token){
-    throw new Error("Sin sesión. Volvé a login.");
-  }
-  const headers = {
-    "Content-Type": "application/json",
-    "X-Operator-Id": String(session.operatorId),
-    "X-Operator-Token": String(session.token),
-    ...(opts.headers || {})
-  };
-
-  const res = await fetch(path, { ...opts, headers });
-  const text = await res.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; }
-  catch { data = { message: text }; }
-
-  if(!res.ok){
-    const msg = data?.message || `Error ${res.status}`;
-    throw new Error(msg);
-  }
-  return data;
+  return await apiJson(path, opts);
 }
 
 function esc(s){
@@ -76,19 +56,15 @@ function money(n){
   return "$" + x.toFixed(2);
 }
 
-function normalizeUid(uid){
-  return String(uid || "").trim().toUpperCase().replace(/[^0-9A-F]/g, "");
-}
-
 function setSelectedUser(u){
   selectedUser = u;
-  selectedUserEl.textContent = u ? `#${u.id} — ${u.name}` : "Ninguno";
+  selectedUserEl.textContent = u ? `#${u.id} â€” ${u.name}` : "Ninguno";
   updateAssignButtonState();
 }
 
 function setSelectedUid(uid){
   selectedUid = uid ? normalizeUid(uid) : null;
-  uidPreviewEl.textContent = selectedUid || "—";
+  uidPreviewEl.textContent = selectedUid || "â€”";
   updateAssignButtonState();
 }
 
@@ -118,7 +94,7 @@ function render(){
     return;
   }
 
-  // IMPORTANTÍSIMO: este orden debe coincidir con el THEAD del HTML
+  // IMPORTANTÃSIMO: este orden debe coincidir con el THEAD del HTML
   tbody.innerHTML = filtered.map(u => `
     <tr>
       <td class="mono">${u.id}</td>
@@ -133,7 +109,7 @@ function render(){
       <td class="mono">
         <span class="jsPhoneView">${esc(u.phone ?? "-")}</span>
         <input class="jsPhoneEdit mono" style="display:none; width:100%; min-width:140px;"
-               value="${esc(u.phone ?? "")}" placeholder="teléfono" />
+               value="${esc(u.phone ?? "")}" placeholder="telÃ©fono" />
       </td>
 
       <td class="mono">${money(u.balance)}</td>
@@ -228,9 +204,9 @@ async function saveRow(btn){
   const newEmail = (emailEdit.value || "").trim();
   const newPhone = (phoneEdit.value || "").trim();
 
-  setStatus(`Guardando contacto de usuario #${id}…`);
+  setStatus(`Guardando contacto de usuario #${id}â€¦`);
   try{
-    const updated = await api(`/users/${id}/contact`, {
+    const updated = await api(`/api/users/${id}/contact`, {
       method: "PUT",
       body: JSON.stringify({ email: newEmail || null, phone: newPhone || null })
     });
@@ -238,7 +214,7 @@ async function saveRow(btn){
     // Actualiza cache local
     users = users.map(u => u.id === id ? { ...u, email: updated.email, phone: updated.phone } : u);
 
-    setStatus("OK · Contacto actualizado");
+    setStatus("OK Â· Contacto actualizado");
     render();
   } catch(e){
     setStatus(`Error: ${e.message}`);
@@ -246,10 +222,10 @@ async function saveRow(btn){
 }
 
 async function refresh(){
-  setStatus("Cargando usuarios…");
+  setStatus("Cargando usuariosâ€¦");
   try{
-    users = await api("/users", { method:"GET" });
-    setStatus(`OK · ${users.length} usuarios cargados`);
+    users = await api("/api/users", { method:"GET" });
+    setStatus(`OK Â· ${users.length} usuarios cargados`);
     render();
   } catch(e){
     setStatus(`Error: ${e.message}`);
@@ -258,20 +234,15 @@ async function refresh(){
 }
 
 async function takeLastUid(){
-  setStatus("Leyendo última pulsera…");
+  setStatus("Leyendo última pulsera...");
   try{
-    const res = await fetch("/last-uid");
-    if(res.status === 404){
+    const uid = await apiGetLastUid();
+    if(!uid){
       setStatus("No hay pulsera leída. Acerca una tarjeta al lector.");
       return;
     }
-    if(!res.ok){
-      setStatus(`Error /last-uid (${res.status})`);
-      return;
-    }
-    const data = await res.json();
-    setSelectedUid(data.uid);
-    setStatus(`UID capturado: ${normalizeUid(data.uid)}`);
+    setSelectedUid(uid);
+    setStatus(`UID capturado: ${normalizeUid(uid)}`);
   } catch(e){
     setStatus(`Error: ${e.message}`);
   }
@@ -284,9 +255,9 @@ async function reassign(){
   if(!selectedUser) { setStatus("Selecciona un usuario."); return; }
   if(!uidToUse) { setStatus("Captura o pega un UID."); return; }
 
-  setStatus("Reasignando pulsera…");
+  setStatus("Reasignando pulseraâ€¦");
   try{
-    await api("/reassign-card", {
+    await api("/api/reassign-card", {
       method: "POST",
       body: JSON.stringify({ userId: selectedUser.id, uid: uidToUse })
     });
@@ -294,7 +265,7 @@ async function reassign(){
     uidManualEl.value = "";
     setSelectedUid(null);
 
-    setStatus(`OK · Pulsera asignada a #${selectedUser.id} (${selectedUser.name})`);
+    setStatus(`OK Â· Pulsera asignada a #${selectedUser.id} (${selectedUser.name})`);
   } catch(e){
     setStatus(`Error: ${e.message}`);
   }
@@ -302,15 +273,16 @@ async function reassign(){
 
 function init(){
   if(jsDot) jsDot.style.color = "#35ff7a";
+  renderAppMenu("appMenu", "/usuarios.html");
 
   session = getSession();
   if(!session?.operatorId || !session?.token){
-    setStatus("Sin sesión. Redirigiendo a login…");
+    setStatus("Sin sesiÃ³n. Redirigiendo a loginâ€¦");
     setTimeout(()=> window.location.href="/login.html", 600);
     return;
   }
 
-  sessionInfoEl.textContent = `${session.name} · ${session.role} · ${session.area ?? "-"}`;
+  sessionInfoEl.textContent = `${session.name} Â· ${session.role} Â· ${session.area ?? "-"}`;
 
   btnRefresh.addEventListener("click", refresh);
   btnLogout.addEventListener("click", logout);
@@ -326,3 +298,5 @@ function init(){
 }
 
 init();
+
+

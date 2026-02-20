@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8">
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Usuarios · Cashless</title>
   <style>
@@ -57,6 +57,7 @@ td:nth-child(2), td:nth-child(3) { white-space: normal; } /* nombre + email pued
 <body>
   <div class="wrap">
     <h1>👥 Usuarios <span id="jsDot" class="muted" title="JS cargado">●</span></h1>
+    <div id="appMenu" class="actions" style="margin-bottom:12px"></div>
 
     <div class="grid">
       <div class="card">
@@ -100,7 +101,7 @@ td:nth-child(2), td:nth-child(3) { white-space: normal; } /* nombre + email pued
 
       <div class="card">
         <h2>🪪 Reasignar pulsera (por pérdida)</h2>
-        <div class="muted">Selecciona un usuario en la tabla y asigna una pulsera nueva usando <code>/last-uid</code> o pegando el UID manualmente.</div>
+        <div class="muted">Selecciona un usuario en la tabla y asigna una pulsera nueva usando <code>/api/last-uid</code> o pegando el UID manualmente.</div>
 
         <div style="margin-top:12px;">
           <div class="pill"><b>Seleccionado:</b> <span id="selectedUser">Ninguno</span></div>

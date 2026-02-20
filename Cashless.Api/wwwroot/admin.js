@@ -1,6 +1,4 @@
-// wwwroot/admin.js (FINAL)
-
-function $(id){ return document.getElementById(id); }
+﻿// wwwroot/admin.js
 
 const jsDot = $("jsDot");
 const sessionInfoEl = $("sessionInfo");
@@ -17,84 +15,70 @@ const btnAssign = $("btnAssign");
 
 const amountEl = $("amount");
 const userNameEl = $("userName");
+const userEmailEl = $("userEmail");
+const userPhoneEl = $("userPhone");
 
 let session = null;
 let currentUid = null;
 
-function setStatus(msg, kind="idle"){
+function setStatus(msg, kind = "idle"){
   statusEl.textContent = msg;
   statusEl.className = `status ${kind}`;
 }
+
 function setUid(uid){
-  currentUid = uid || null;
+  currentUid = normalizeUid(uid);
   uidEl.textContent = currentUid || "—";
   uidEl.classList.toggle("muted", !currentUid);
 }
+
 function setClient(name, balance){
   clientNameEl.textContent = name ?? "—";
   clientBalanceEl.textContent = (balance ?? "—");
 }
 
-function getSession(){
-  const raw = localStorage.getItem("cashless.session");
-  if(!raw) return null;
-  try { return JSON.parse(raw); } catch { return null; }
-}
-
 function logout(){
-  localStorage.removeItem("cashless.session");
+  clearSession();
   window.location.href = "/login.html";
 }
 
-async function api(path, opts = {}){
-  if(!session?.operatorId || !session?.token){
-    throw new Error("Sin sesión. Volvé a login.");
-  }
-  const headers = {
-    "Content-Type": "application/json",
-    "X-Operator-Id": String(session.operatorId),
-    "X-Operator-Token": String(session.token),
-    ...(opts.headers || {})
-  };
-
-  const res = await fetch(path, { ...opts, headers });
-  const text = await res.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; }
-  catch { data = { message: text }; }
-
-  if(!res.ok){
-    const msg = data?.message || `Error ${res.status}`;
-    throw new Error(msg);
-  }
-  return data;
-}
-
-async function refreshBalance(){
+async function refreshCardInfo(){
   if(!currentUid) return;
 
   try{
-    const b = await api(`/balance/${encodeURIComponent(currentUid)}`, { method:"GET" });
-    setClient(b.userName, b.balance);
-    setStatus(`✅ ${b.userName} · Saldo $${b.balance}`, "ok");
-  } catch(e){
-    // Normal si aún no está asignada
+    const data = await apiGetCardByUid(currentUid);
+    setClient(data.userName, data.balance);
+    setStatus(`✅ ${data.userName} · Saldo $${data.balance}`, "ok");
+  }catch(e){
+    const msg = String(e?.message || "");
+    const notAssigned = /tarjeta no asignada|no asignada|card no existe|not found/i.test(msg);
     setClient("—", "—");
-    setStatus(`UID leído (${currentUid}) pero sin usuario/saldo: ${e.message}`, "bad");
+    if(notAssigned){
+      setStatus(`UID leído (${currentUid}) · Tarjeta no asignada`, "bad");
+    }else{
+      setStatus(`Error resolviendo tarjeta: ${msg || "No disponible"}`, "bad");
+    }
   }
 }
 
 async function readUid(){
-  setStatus("Leyendo pulsera… (click y luego acercá la pulsera)", "idle");
+  setStatus("Leyendo pulsera…", "idle");
   setClient("—", "—");
+
   try{
-    const data = await api("/last-uid", { method:"GET" });
-    setUid(data.uid);
-    await refreshBalance();
-  } catch(e){
+    const uid = await apiGetLastUid();
+    if(!uid){
+      setUid(null);
+      setStatus("No hay pulsera leída aún.", "bad");
+      return;
+    }
+
+    setUid(uid);
+    await refreshCardInfo();
+  }catch(e){
     setUid(null);
     setClient("—", "—");
-    setStatus(e.message || "No hay pulsera. Volvé a intentar.", "bad");
+    setStatus(e?.message || "No hay pulsera. Volvé a intentar.", "bad");
   }
 }
 
@@ -107,17 +91,17 @@ async function topup(){
   }
 
   setStatus(`Recargando $${amount}…`, "idle");
+
   try{
-    const res = await api("/topup", {
+    const res = await apiJson("/api/topup", {
       method:"POST",
       body: JSON.stringify({ uid: currentUid, amount })
     });
 
-    // refrescar saldo real
-    await refreshBalance();
+    await refreshCardInfo();
     setStatus(`✅ Recarga OK · Nuevo saldo $${res.newBalance}`, "ok");
-  } catch(e){
-    setStatus(e.message || "Error recargando", "bad");
+  }catch(e){
+    setStatus(e?.message || "Error recargando", "bad");
   }
 }
 
@@ -125,52 +109,55 @@ async function createAndAssign(){
   if(!currentUid) return setStatus("Primero leé la pulsera.", "bad");
 
   const name = (userNameEl.value || "").trim();
+  const email = (userEmailEl?.value || "").trim();
+  const phone = (userPhoneEl?.value || "").trim();
+
   if(!name) return setStatus("Escribí el nombre del cliente.", "bad");
 
   setStatus("Creando usuario…", "idle");
+
   try{
-    const user = await api("/users", {
+    const user = await apiJson("/api/users", {
       method:"POST",
-      body: JSON.stringify({ name })
+      body: JSON.stringify({ name, email: email || null, phone: phone || null })
     });
 
     setStatus("Asignando pulsera…", "idle");
-    await api("/assign-card", {
+
+    await apiJson("/api/assign-card", {
       method:"POST",
       body: JSON.stringify({ userId: user.id, uid: currentUid })
     });
 
-    // ya asignado: refrescar balance
-    await refreshBalance();
+    await refreshCardInfo();
     setStatus(`✅ Asignado a ${name} (UserId ${user.id})`, "ok");
-  } catch(e){
-    setStatus(e.message || "Error creando/asignando", "bad");
+  }catch(e){
+    setStatus(e?.message || "Error creando/asignando", "bad");
   }
 }
 
 function init(){
-  // indicador de vida
   if(jsDot) jsDot.classList.add("on");
+
+  renderAppMenu("appMenu", "/admin.html");
 
   session = getSession();
   if(!session?.operatorId || !session?.token){
     setStatus("Sin sesión. Redirigiendo a login…", "bad");
-    setTimeout(()=> window.location.href="/login.html", 600);
+    setTimeout(()=> window.location.href = "/login.html", 600);
     return;
   }
 
   sessionInfoEl.textContent = `${session.name} · ${session.role} · ${session.area ?? "-"}`;
 
-  // eventos
   btnUid.addEventListener("click", readUid);
   btnTopup.addEventListener("click", topup);
   btnAssign.addEventListener("click", createAndAssign);
   btnLogout.addEventListener("click", logout);
 
-  // estado inicial
   setUid(null);
   setClient("—", "—");
-  setStatus("Listo. Cerrá Barra si está abierta y leé una pulsera.", "idle");
+  setStatus("Listo. Leé una pulsera para consultar o asignar.", "idle");
 }
 
 init();

@@ -215,4 +215,5 @@ $("btnLogout").addEventListener("click", ()=>{
 });
 
 // init
+renderAppMenu("appMenu", "/barras.html");
 loadAreas();

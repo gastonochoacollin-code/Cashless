@@ -20,7 +20,7 @@ public static class ReportsEndpoints
             if (op is null) return Results.Unauthorized();
 
             var range = GetUtcRange(from, to);
-            var result = await reports.GetReportsSummaryAsync(db, op.TenantId, range.From, range.To);
+            var result = await reports.GetReportsSummaryAsync(db, op.TenantId, range.From, range.To, areaId);
             return Results.Ok(result);
         });
 
@@ -32,7 +32,7 @@ public static class ReportsEndpoints
             var range = GetUtcRange(from, to);
             var limit = Math.Clamp(take, 1, 50);
 
-            var result = await reports.GetReportsTopProductsAsync(db, op.TenantId, range.From, range.To, limit);
+            var result = await reports.GetReportsTopProductsAsync(db, op.TenantId, range.From, range.To, areaId, limit);
             return Results.Ok(result);
         });
 
@@ -43,6 +43,27 @@ public static class ReportsEndpoints
 
             var range = GetUtcRange(from, to);
             var rows = await reports.GetSalesByAreaAsync(db, op.TenantId, range.From, range.To);
+            return Results.Ok(rows);
+        });
+
+        app.MapGet("/api/reports/by-operator", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, IReportService reports, string? from, string? to, int? areaId) =>
+        {
+            var op = await auth.AuthenticateAsync(db, http.Request);
+            if (op is null) return Results.Unauthorized();
+
+            var range = GetUtcRange(from, to);
+            var rows = await reports.GetReportsByOperatorAsync(db, op.TenantId, range.From, range.To, areaId);
+            return Results.Ok(rows);
+        });
+
+        app.MapGet("/api/reports/recent", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, IReportService reports, string? from, string? to, int? areaId, int take = 50) =>
+        {
+            var op = await auth.AuthenticateAsync(db, http.Request);
+            if (op is null) return Results.Unauthorized();
+
+            var range = GetUtcRange(from, to);
+            var limit = Math.Clamp(take, 1, 200);
+            var rows = await reports.GetReportsRecentAsync(db, op.TenantId, range.From, range.To, areaId, limit);
             return Results.Ok(rows);
         });
 
@@ -65,6 +86,6 @@ public static class ReportsEndpoints
     {
         if (string.IsNullOrWhiteSpace(s)) return null;
         if (!DateTimeOffset.TryParse(s, out var dt)) return null;
-        return dt.ToUniversalTime().Date;
+        return dt.ToUniversalTime();
     }
 }

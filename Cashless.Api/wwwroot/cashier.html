@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Caja · Cortes · Cashless Social</title>
+  <style>
+    :root{
+      --bg:#0b0b0f; --card:#151520; --muted:#9aa0a6; --txt:#fff;
+      --blue:#2f7cff; --alt:#2a2a3a; --red:#ff5a5a; --green:#35ff7a;
+      --field:#0f0f18; --border:#26263a;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu;
+      background:radial-gradient(1200px 700px at 20% 10%, #1a1a33 0%, transparent 55%),
+                 radial-gradient(1000px 600px at 80% 80%, #111133 0%, transparent 55%),
+                 var(--bg);
+      color:var(--txt);
+      min-height:100vh;
+      padding:20px;
+    }
+    .wrap{max-width:1280px;margin:0 auto}
+    .topbar{
+      display:flex; align-items:center; justify-content:space-between;
+      gap:12px; margin-bottom:16px; flex-wrap:wrap;
+    }
+    .brand{display:flex; flex-direction:column; gap:2px}
+    .brand b{font-size:18px}
+    .brand span{color:var(--muted); font-size:12px}
+    .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+    .btn{
+      border:0; cursor:pointer; padding:10px 14px; border-radius:12px;
+      background:var(--blue); color:white; font-weight:800;
+    }
+    .btn.alt{background:var(--alt)}
+    .btn.danger{background:var(--red)}
+    .btn:disabled{opacity:.45; cursor:not-allowed}
+    .card{
+      background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+      border:1px solid var(--border);
+      border-radius:18px;
+      padding:16px;
+      box-shadow:0 18px 60px rgba(0,0,0,.35);
+      margin-bottom:14px;
+    }
+    h2{margin:0 0 12px 0; font-size:18px}
+    .muted{color:var(--muted); font-size:12px}
+    .pill{
+      display:inline-flex; align-items:center; gap:8px;
+      padding:6px 10px; border-radius:999px; background:#0f0f18;
+      border:1px solid var(--border); color:var(--muted); font-size:12px;
+    }
+    .field, select{
+      background:var(--field); border:1px solid var(--border); color:var(--txt);
+      border-radius:12px; padding:10px 12px; outline:none;
+    }
+    .grid{
+      display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:12px;
+    }
+    @media (max-width: 1100px){ .grid{grid-template-columns:repeat(2, minmax(0,1fr))} }
+    @media (max-width: 720px){ .grid{grid-template-columns:1fr} }
+    .kpi{
+      background:#101022; border:1px solid var(--border); border-radius:14px;
+      padding:12px;
+    }
+    .kpi b{display:block; font-size:18px}
+    table{width:100%; border-collapse:collapse}
+    th,td{padding:8px; border-bottom:1px solid rgba(255,255,255,.06); text-align:left; font-size:13px}
+    th{color:var(--muted); font-weight:700; letter-spacing:.04em; text-transform:uppercase; font-size:11px}
+    .split{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+    @media (max-width: 980px){ .split{grid-template-columns:1fr} }
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="brand">
+        <b>Cashless Social</b>
+        <span>Caja / Cortes</span>
+      </div>
+      <div class="row">
+        <span class="pill" id="sessionInfo">—</span>
+        <button class="btn alt" id="btnBack">Volver</button>
+        <button class="btn danger" id="btnLogout">Cerrar sesión</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Filtros</h2>
+      <div class="row" style="margin-bottom:10px">
+        <select id="areaSelect" class="field" style="min-width:220px"></select>
+        <button class="btn alt" id="btnToday">Hoy</button>
+        <button class="btn alt" id="btnLast2h">Últimas 2h</button>
+      </div>
+      <div class="row" style="margin-bottom:10px">
+        <input id="fromDt" class="field" type="datetime-local" />
+        <input id="toDt" class="field" type="datetime-local" />
+        <button class="btn" id="btnApply">Aplicar rango</button>
+        <button class="btn alt" id="btnRefresh">Refrescar</button>
+      </div>
+      <div class="row">
+        <span class="pill" id="shiftInfo">Turno: —</span>
+        <span class="muted" id="rangeInfo">—</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Resumen</h2>
+      <div class="grid">
+        <div class="kpi">
+          <div class="muted">Total ventas</div>
+          <b id="kpiTotal">—</b>
+        </div>
+        <div class="kpi">
+          <div class="muted">Propinas</div>
+          <b id="kpiTips">—</b>
+        </div>
+        <div class="kpi">
+          <div class="muted"># Transacciones</div>
+          <b id="kpiTx">—</b>
+        </div>
+        <div class="kpi">
+          <div class="muted">Ticket promedio</div>
+          <b id="kpiAvg">—</b>
+        </div>
+        <div class="kpi">
+          <div class="muted">Total neto</div>
+          <b id="kpiNet">—</b>
+        </div>
+      </div>
+      <div class="muted" id="statusMsg" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
+      <h2>Acciones de turno</h2>
+      <div class="row">
+        <button class="btn" id="btnOpenShift">Abrir turno</button>
+        <button class="btn alt" id="btnCloseShift">Cerrar turno</button>
+        <button class="btn" id="btnFinal">Corte final del día</button>
+        <button class="btn alt" id="btnPrintShift">Imprimir turno</button>
+        <button class="btn alt" id="btnPrintFinal">Imprimir final</button>
+      </div>
+    </div>
+
+    <div class="split">
+      <div class="card">
+        <h2>Ventas por producto</h2>
+        <div style="overflow:auto">
+          <table>
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Qty</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody id="topProductsBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Ventas por operador</h2>
+        <div style="overflow:auto">
+          <table>
+            <thead>
+              <tr>
+                <th>Operador</th>
+                <th>Tx</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody id="topOperatorsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Transacciones recientes</h2>
+      <div style="overflow:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Hora</th>
+              <th>UID</th>
+              <th>Área</th>
+              <th>Operador</th>
+              <th>Total</th>
+              <th>Propina</th>
+            </tr>
+          </thead>
+          <tbody id="recentBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="/common.js"></script>
+  <script src="/cashier.js" defer></script>
+</body>
+</html>

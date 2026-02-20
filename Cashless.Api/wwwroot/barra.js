@@ -308,19 +308,17 @@ async function loadMenuForArea(areaId){
 
 // ===================== NFC / UID =====================
 async function readUidOnce(){
-  const r = await fetch(`/last-uid?terminalId=${encodeURIComponent(terminalId)}`);
-  if(!r.ok) return null;
-  const j = await r.json();
-  return j.uid || null;
+  return await apiGetLastUid();
 }
 
 async function loadCardInfo(uid){
-  const data = await apiJson(`/cards/${encodeURIComponent(uid)}`);
-  currentUid = uid;
+  const clean = normalizeUid(uid);
+  const data = await apiGetCardByUid(clean);
+  currentUid = clean;
   currentName = data.userName;
   currentBalance = Number(data.balance || 0);
 
-  uidEl.textContent = uid;
+  uidEl.textContent = clean;
   nameEl.textContent = currentName || "-";
   balanceEl.textContent = "$" + money(currentBalance);
 }
@@ -351,7 +349,7 @@ async function doCharge(){
   const tip = calcTip(sub);
   const total = sub + tip;
 
-  const result = await apiJson("/charge", {
+  const result = await apiJson("/api/charge", {
     method: "POST",
     body: JSON.stringify({ uid: currentUid, amount: total, terminalId })
   });
@@ -420,7 +418,12 @@ btnUid.addEventListener("click", async ()=>{
     await loadCardInfo(uid);
     setIdle("Pulsera leída ✅");
   }catch(e){
-    setError("Error leyendo pulsera: " + (e.message || e));
+    const msg = String(e?.message || e || "");
+    if(/tarjeta no asignada|no asignada|card no existe|not found/i.test(msg)){
+      setError("Tarjeta no asignada.");
+    }else{
+      setError("Error leyendo pulsera: " + msg);
+    }
   }
 });
 
@@ -442,6 +445,7 @@ btnCharge.addEventListener("click", async ()=>{
 // ===================== Init =====================
 (async function init(){
   try{
+    renderAppMenu("appMenu", "/barra.html");
     renderCart();
     renderTotals();
     await loadBars(); // también carga menú

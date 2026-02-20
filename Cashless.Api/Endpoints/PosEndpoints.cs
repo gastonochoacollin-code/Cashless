@@ -11,23 +11,37 @@ public static class PosEndpoints
 {
     public static WebApplication MapPosEndpoints(this WebApplication app)
     {
-        app.MapPost("/uid", (UidRequest req, IUidState uidState) =>
+        async Task<IResult> SetUid(CashlessContext db, HttpContext http, IAuthService auth, UidRequest req, IUidState uidState, string? terminalId)
         {
-            var uid = (req.uid ?? "").Trim().ToUpperInvariant();
-            uidState.SetLastUid(uid);
+            var op = await auth.AuthenticateAsync(db, http.Request);
+            if (op is null) return Results.Unauthorized();
+
+            var uid = NormalizeUid(req.uid);
+            if (string.IsNullOrWhiteSpace(uid))
+                return Results.BadRequest(new { message = "UID requerido" });
+            uidState.SetLastUid(uid, terminalId);
             Console.WriteLine($"UID leÃ­do: {uid}");
             return Results.Ok(new { ok = true });
-        });
+        }
+        app.MapPost("/api/uid", SetUid);
+        // DEPRECATED: usar /api/uid
+        app.MapPost("/uid", SetUid);
 
-        app.MapGet("/last-uid", (IUidState uidState) =>
+        async Task<IResult> GetLastUid(CashlessContext db, HttpContext http, IAuthService auth, IUidState uidState, string? terminalId)
         {
+            var op = await auth.AuthenticateAsync(db, http.Request);
+            if (op is null) return Results.Unauthorized();
+
             // Nunca 404 para no spamear consola del dashboard.
-            // Si no hay UID, devolvemos uid vacÃ­o.
-            if (!uidState.TryTakeLastUid(out var uid))
+            // Si no hay UID, devolvemos uid vacío.
+            if (!uidState.TryTakeLastUid(out var uid, terminalId))
                 return Results.Ok(new { uid = "" });
 
             return Results.Ok(new { uid });
-        });
+        }
+        app.MapGet("/api/last-uid", GetLastUid);
+        // DEPRECATED: usar /api/last-uid
+        app.MapGet("/last-uid", GetLastUid);
 
         app.MapGet("/balance/{uid}", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, string uid) =>
         {
@@ -50,7 +64,7 @@ public static class PosEndpoints
             });
         });
 
-        app.MapPost("/topup", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, TopupRequest req) =>
+        async Task<IResult> TopupAsync(CashlessContext db, HttpContext http, IAuthService auth, IUidState uidState, TopupRequest req)
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
@@ -62,6 +76,8 @@ public static class PosEndpoints
 
             var card = await db.Cards.Include(c => c.User).FirstOrDefaultAsync(c => c.Uid == uid && c.TenantId == tenantId && c.User.TenantId == tenantId);
             if (card is null) return Results.NotFound(new { message = "Pulsera no asignada" });
+            if (!uidState.ConsumePendingIfMatches(uid))
+                return Results.BadRequest(new { message = "Lee la pulsera antes de confirmar la recarga" });
 
             card.User.Balance += req.Amount;
 
@@ -79,9 +95,12 @@ public static class PosEndpoints
 
             await db.SaveChangesAsync();
             return Results.Ok(new { newBalance = card.User.Balance });
-        });
+        }
+        app.MapPost("/api/topup", TopupAsync);
+        // DEPRECATED: usar /api/topup
+        app.MapPost("/topup", TopupAsync);
 
-        app.MapPost("/charge", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, IUidState uidState, ChargeRequest req) =>
+        async Task<IResult> ChargeAsync(CashlessContext db, HttpContext http, IAuthService auth, IUidState uidState, ChargeRequest req)
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
@@ -118,7 +137,10 @@ public static class PosEndpoints
 
             await db.SaveChangesAsync();
             return Results.Ok(new { newBalance = card.User.Balance });
-        });
+        }
+        app.MapPost("/api/charge", ChargeAsync);
+        // DEPRECATED: usar /api/charge
+        app.MapPost("/charge", ChargeAsync);
 
         // =======================
         // PROTEGIDO: Charge V2 (propina + donaciÃ³n + items) + datos para reportes
@@ -126,7 +148,7 @@ public static class PosEndpoints
         // - Crea 1 tx de SUBTOTAL + 1 tx de TIP (si aplica) + 1 tx de DONATION (si aplica)
         // =======================
 
-        app.MapPost("/charge-v2", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, IUidState uidState, ChargeRequestV2 req) =>
+        async Task<IResult> ChargeV2Async(CashlessContext db, HttpContext http, IAuthService auth, IUidState uidState, ChargeRequestV2 req)
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
@@ -280,10 +302,19 @@ public static class PosEndpoints
                 grandTotal,
                 newBalance = card.User.Balance
             });
-        });
+        }
+        app.MapPost("/api/charge-v2", ChargeV2Async);
+        // DEPRECATED: usar /api/charge-v2
+        app.MapPost("/charge-v2", ChargeV2Async);
 
         return app;
     }
+
+    private static string NormalizeUid(string? uid)
+        => string.Concat((uid ?? string.Empty)
+            .Trim()
+            .ToUpperInvariant()
+            .Where(c => !char.IsWhiteSpace(c) && c != '-' && c != ':'));
 }
 
 

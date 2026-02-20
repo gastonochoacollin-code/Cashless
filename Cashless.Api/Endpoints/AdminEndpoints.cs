@@ -75,11 +75,22 @@ public static class AdminEndpoints
 
     public static WebApplication MapAdminEndpoints(this WebApplication app)
     {
+        static Task<IResult> GetUsers(CashlessContext db, HttpContext http, IAuthService auth)
+            => HandleGetUsers(db, http, auth);
+        static Task<IResult> CreateUser(CashlessContext db, HttpContext http, IAuthService auth, CreateUserRequest req)
+            => HandleCreateUser(db, http, auth, req);
+        static Task<IResult> UpdateUserContact(CashlessContext db, HttpContext http, IAuthService auth, int id, UpdateUserContactRequest req)
+            => HandleUpdateUserContact(db, http, auth, id, req);
+        static Task<IResult> GetUsersCount(CashlessContext db, HttpContext http, IAuthService auth)
+            => HandleGetUsersCount(db, http, auth);
+        static Task<IResult> GetUsersSummary(CashlessContext db, HttpContext http, IAuthService auth)
+            => HandleGetUsersSummary(db, http, auth);
+
         app.MapGet("/api/operators/{id:int}/areas", async Task<IResult> (int id, CashlessContext db, HttpContext http, IAuthService auth) =>
         {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-            var tenantId = op.TenantId;
+            var (op, fail) = await RequireAdmin(db, http, auth);
+            if (fail is not null) return fail;
+            var tenantId = op!.TenantId;
 
             var list = await db.OperatorAreas
                 .Include(x => x.Area)
@@ -99,9 +110,9 @@ public static class AdminEndpoints
 
         app.MapPost("/api/operators/{id:int}/areas", async Task<IResult> (int id, OperatorArea dto, CashlessContext db, HttpContext http, IAuthService auth) =>
         {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-            var tenantId = op.TenantId;
+            var (op, fail) = await RequireAdmin(db, http, auth);
+            if (fail is not null) return fail;
+            var tenantId = op!.TenantId;
 
             var operatorExists = await db.Operators.AnyAsync(o => o.Id == id && o.TenantId == tenantId);
             if (!operatorExists) return Results.NotFound(new { message = "Operador no existe" });
@@ -222,9 +233,9 @@ public static class AdminEndpoints
 
         app.MapPost("/api/areas", async Task<IResult> (AreaUpsertDto dto, CashlessContext db, HttpContext http, IAuthService auth) =>
         {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-            var tenantId = op.TenantId;
+            var (op, fail) = await RequireBarManager(db, http, auth);
+            if (fail is not null) return fail;
+            var tenantId = op!.TenantId;
 
             if (string.IsNullOrWhiteSpace(dto.Name))
                 return Results.BadRequest(new { message = "Name is required." });
@@ -256,9 +267,9 @@ public static class AdminEndpoints
 
         app.MapPut("/api/areas/{id:int}", async Task<IResult> (int id, AreaUpsertDto dto, CashlessContext db, HttpContext http, IAuthService auth) =>
         {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-            var tenantId = op.TenantId;
+            var (op, fail) = await RequireBarManager(db, http, auth);
+            if (fail is not null) return fail;
+            var tenantId = op!.TenantId;
 
             var area = await db.Areas.FirstOrDefaultAsync(a => a.Id == id && a.TenantId == tenantId);
             if (area is null) return Results.NotFound(new { message = "Area no existe" });
@@ -288,9 +299,9 @@ public static class AdminEndpoints
 
         app.MapDelete("/api/areas/{id:int}", async Task<IResult> (int id, CashlessContext db, HttpContext http, IAuthService auth) =>
         {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-            var tenantId = op.TenantId;
+            var (op, fail) = await RequireBarManager(db, http, auth);
+            if (fail is not null) return fail;
+            var tenantId = op!.TenantId;
 
             var area = await db.Areas.FirstOrDefaultAsync(a => a.Id == id && a.TenantId == tenantId);
             if (area is null) return Results.NotFound(new { message = "Area no existe" });
@@ -325,9 +336,9 @@ public static class AdminEndpoints
         });
         app.MapPost("/api/products", async Task<IResult> (ProductUpsertDto dto, CashlessContext db, HttpContext http, IAuthService auth) =>
         {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-            var tenantId = op.TenantId;
+            var (op, fail) = await RequireBarManager(db, http, auth);
+            if (fail is not null) return fail;
+            var tenantId = op!.TenantId;
 
             if (string.IsNullOrWhiteSpace(dto.Name))
                 return Results.BadRequest(new { message = "Nombre requerido" });
@@ -360,9 +371,9 @@ public static class AdminEndpoints
 
         app.MapPut("/api/products/{id:int}", async Task<IResult> (int id, ProductUpsertDto dto, CashlessContext db, HttpContext http, IAuthService auth) =>
         {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-            var tenantId = op.TenantId;
+            var (op, fail) = await RequireBarManager(db, http, auth);
+            if (fail is not null) return fail;
+            var tenantId = op!.TenantId;
 
             var p = await db.Products.FirstOrDefaultAsync(p => p.Id == id && p.TenantId == tenantId);
             if (p is null) return Results.NotFound(new { message = "Producto no existe" });
@@ -393,9 +404,9 @@ public static class AdminEndpoints
 
         app.MapDelete("/api/products/{id:int}", async Task<IResult> (int id, CashlessContext db, HttpContext http, IAuthService auth) =>
         {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-            var tenantId = op.TenantId;
+            var (op, fail) = await RequireBarManager(db, http, auth);
+            if (fail is not null) return fail;
+            var tenantId = op!.TenantId;
 
             var p = await db.Products.FirstOrDefaultAsync(p => p.Id == id && p.TenantId == tenantId);
             if (p is null) return Results.NotFound(new { message = "Producto no existe" });
@@ -439,9 +450,9 @@ public static class AdminEndpoints
 
         app.MapPost("/api/areas/{areaId:int}/products", async Task<IResult> (int areaId, AreaProductCreateDto dto, CashlessContext db, HttpContext http, IAuthService auth) =>
         {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-            var tenantId = op.TenantId;
+            var (op, fail) = await RequireBarManager(db, http, auth);
+            if (fail is not null) return fail;
+            var tenantId = op!.TenantId;
 
             var area = await db.Areas.FirstOrDefaultAsync(a => a.Id == areaId && a.TenantId == tenantId);
             if (area is null) return Results.NotFound(new { message = "Area no existe" });
@@ -483,9 +494,9 @@ public static class AdminEndpoints
         });
         app.MapPut("/api/areas/{areaId:int}/products/{areaProductId:int}", async Task<IResult> (int areaId, int areaProductId, AreaProductUpdateDto dto, CashlessContext db, HttpContext http, IAuthService auth) =>
         {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-            var tenantId = op.TenantId;
+            var (op, fail) = await RequireBarManager(db, http, auth);
+            if (fail is not null) return fail;
+            var tenantId = op!.TenantId;
 
             var link = await db.AreaProducts
                 .Include(x => x.Product)
@@ -518,9 +529,9 @@ public static class AdminEndpoints
 
         app.MapDelete("/api/areas/{areaId:int}/products/{areaProductId:int}", async Task<IResult> (int areaId, int areaProductId, CashlessContext db, HttpContext http, IAuthService auth) =>
         {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-            var tenantId = op.TenantId;
+            var (op, fail) = await RequireBarManager(db, http, auth);
+            if (fail is not null) return fail;
+            var tenantId = op!.TenantId;
 
             var link = await db.AreaProducts.FirstOrDefaultAsync(x => x.Id == areaProductId && x.AreaId == areaId && x.TenantId == tenantId);
             if (link is null) return Results.NotFound(new { message = "No existe ese vínculo." });
@@ -533,9 +544,9 @@ public static class AdminEndpoints
         // ===================== OPERATORS (COLABORADORES) - PROTEGIDO =====================
         app.MapGet("/api/operators", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth) =>
         {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-            var tenantId = op.TenantId;
+            var (op, fail) = await RequireAdmin(db, http, auth);
+            if (fail is not null) return fail;
+            var tenantId = op!.TenantId;
 
             var list = await db.Operators
                 .Include(o => o.Area)
@@ -557,10 +568,10 @@ public static class AdminEndpoints
 
         app.MapPost("/api/operators", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, OperatorUpsertDto dto) =>
         {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-            if (!CanManageOperators(op)) return Forbidden("No tienes permisos para crear colaboradores.");
-            var tenantId = op.TenantId;
+            var (op, fail) = await RequireAdmin(db, http, auth);
+            if (fail is not null) return fail;
+            if (!CanManageOperators(op!)) return Forbidden("No tienes permisos para crear colaboradores.");
+            var tenantId = op!.TenantId;
 
             if (string.IsNullOrWhiteSpace(dto.Name))
                 return Results.BadRequest(new { message = "Nombre requerido" });
@@ -608,10 +619,10 @@ public static class AdminEndpoints
 
         app.MapPut("/api/operators/{id:int}", async Task<IResult> (int id, CashlessContext db, HttpContext http, IAuthService auth, OperatorUpsertDto dto) =>
         {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-            if (!CanManageOperators(op)) return Forbidden("No tienes permisos para editar colaboradores.");
-            var tenantId = op.TenantId;
+            var (op, fail) = await RequireAdmin(db, http, auth);
+            if (fail is not null) return fail;
+            if (!CanManageOperators(op!)) return Forbidden("No tienes permisos para editar colaboradores.");
+            var tenantId = op!.TenantId;
 
             var target = await db.Operators.FirstOrDefaultAsync(o => o.Id == id && o.TenantId == tenantId);
             if (target is null) return Results.NotFound(new { message = "Operador no existe" });
@@ -656,10 +667,10 @@ public static class AdminEndpoints
 
         app.MapDelete("/api/operators/{id:int}", async Task<IResult> (int id, CashlessContext db, HttpContext http, IAuthService auth) =>
         {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-            if (!CanManageOperators(op)) return Forbidden("No tienes permisos para desactivar colaboradores.");
-            var tenantId = op.TenantId;
+            var (op, fail) = await RequireAdmin(db, http, auth);
+            if (fail is not null) return fail;
+            if (!CanManageOperators(op!)) return Forbidden("No tienes permisos para desactivar colaboradores.");
+            var tenantId = op!.TenantId;
 
             var target = await db.Operators.FirstOrDefaultAsync(o => o.Id == id && o.TenantId == tenantId);
             if (target is null) return Results.NotFound(new { message = "Operador no existe" });
@@ -700,63 +711,14 @@ public static class AdminEndpoints
         });
 
         // ===================== PROTEGIDO: Users + assign card =====================
-        app.MapGet("/users", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth) =>
-        {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-            var tenantId = op.TenantId;
-
-            var users = await db.Users
-                .Where(u => u.TenantId == tenantId)
-                .OrderByDescending(u => u.Id)
-                .Select(u => new
-                {
-                    u.Id,
-                    u.Name,
-                    u.Email,
-                    u.Phone,
-                    u.Balance,
-                    u.TotalSpent,
-                    u.CreatedAt
-                })
-                .ToListAsync();
-
-            return Results.Ok(users);
-        });
-
-        app.MapPost("/users", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, CreateUserRequest req) =>
-        {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-            var tenantId = op.TenantId;
-
-            if (string.IsNullOrWhiteSpace(req.Name))
-                return Results.BadRequest(new { message = "Nombre requerido" });
-
-            var user = new User
-            {
-                Name = req.Name.Trim(),
-                Email = string.IsNullOrWhiteSpace(req.Email) ? null : req.Email.Trim(),
-                Phone = string.IsNullOrWhiteSpace(req.Phone) ? null : req.Phone.Trim(),
-                Balance = 0,
-                TotalSpent = 0,
-                TenantId = tenantId
-            };
-
-            db.Users.Add(user);
-            await db.SaveChangesAsync();
-
-            return Results.Ok(new
-            {
-                user.Id,
-                user.Name,
-                user.Email,
-                user.Phone,
-                user.Balance,
-                user.TotalSpent,
-                user.CreatedAt
-            });
-        });
+        app.MapGet("/users", GetUsers);
+        app.MapPost("/users", CreateUser);
+        app.MapGet("/users/count", GetUsersCount);
+        app.MapGet("/users/summary", GetUsersSummary);
+        app.MapGet("/api/users", GetUsers);
+        app.MapPost("/api/users", CreateUser);
+        app.MapGet("/api/users/count", GetUsersCount);
+        app.MapGet("/api/users/summary", GetUsersSummary);
 
         app.MapPost("/assign-card", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, AssignCardRequest req) =>
         {
@@ -814,31 +776,8 @@ public static class AdminEndpoints
             });
         });
 
-        app.MapPut("/users/{id}/contact", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, int id, UpdateUserContactRequest req) =>
-        {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-            var tenantId = op.TenantId;
-
-            var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id && u.TenantId == tenantId);
-            if (user is null) return Results.NotFound(new { message = "Usuario no existe" });
-
-            user.Email = string.IsNullOrWhiteSpace(req.Email) ? null : req.Email.Trim();
-            user.Phone = string.IsNullOrWhiteSpace(req.Phone) ? null : req.Phone.Trim();
-
-            await db.SaveChangesAsync();
-
-            return Results.Ok(new
-            {
-                user.Id,
-                user.Name,
-                user.Email,
-                user.Phone,
-                user.Balance,
-                user.TotalSpent,
-                user.CreatedAt
-            });
-        });
+        app.MapPut("/users/{id}/contact", UpdateUserContact);
+        app.MapPut("/api/users/{id}/contact", UpdateUserContact);
 
         app.MapPost("/reassign-card", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, ReassignCardRequest req) =>
         {
@@ -876,12 +815,8 @@ public static class AdminEndpoints
         // Nota: por ahora es RBAC simple (por rol). Más adelante podemos meter overrides por operador en BD.
         app.MapGet("/api/permissions", async (CashlessContext db, HttpContext http, IAuthService auth) =>
         {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-
-            // Si quieres restringir: solo Admin/SuperAdmin
-            if (op.Role != OperatorRole.SuperAdmin && op.Role != OperatorRole.Admin)
-                return Results.Json(new { message = "Forbidden" }, statusCode: 403);
+            var (op, fail) = await RequireAdmin(db, http, auth);
+            if (fail is not null) return fail;
 
             // Respuesta en el formato que permisos.js espera:
             var roles = new[] { "SuperAdmin","Admin","JefeOperativo","JefeDeBarra","JefeDeStand" };
@@ -939,6 +874,158 @@ public static class AdminEndpoints
 
     private static IResult Forbidden(string msg = "Forbidden")
         => Results.Json(new { message = msg }, statusCode: 403);
+
+    private static async Task<(Operator? op, IResult? fail)> RequireAdmin(
+        CashlessContext db,
+        HttpContext http,
+        IAuthService auth)
+    {
+        var op = await auth.AuthenticateAsync(db, http.Request);
+        if (op is null) return (null, Results.Unauthorized());
+        if (op.Role != OperatorRole.SuperAdmin && op.Role != OperatorRole.Admin)
+            return (op, Forbidden());
+        return (op, null);
+    }
+
+    private static async Task<(Operator? op, IResult? fail)> RequireBarManager(
+        CashlessContext db,
+        HttpContext http,
+        IAuthService auth)
+    {
+        var op = await auth.AuthenticateAsync(db, http.Request);
+        if (op is null) return (null, Results.Unauthorized());
+        if (op.Role != OperatorRole.SuperAdmin
+            && op.Role != OperatorRole.Admin
+            && op.Role != OperatorRole.JefeDeBarra)
+            return (op, Forbidden());
+        return (op, null);
+    }
+
+    private static async Task<IResult> HandleGetUsers(CashlessContext db, HttpContext http, IAuthService auth)
+    {
+        var (op, fail) = await RequireAdmin(db, http, auth);
+        if (fail is not null) return fail;
+        var tenantId = op!.TenantId;
+
+        var users = await db.Users
+            .Where(u => u.TenantId == tenantId)
+            .OrderByDescending(u => u.Id)
+            .Select(u => new
+            {
+                u.Id,
+                u.Name,
+                u.Email,
+                u.Phone,
+                u.Balance,
+                u.TotalSpent,
+                u.CreatedAt
+            })
+            .ToListAsync();
+
+        return Results.Ok(users);
+    }
+
+    private static async Task<IResult> HandleCreateUser(
+        CashlessContext db,
+        HttpContext http,
+        IAuthService auth,
+        CreateUserRequest req)
+    {
+        var (op, fail) = await RequireAdmin(db, http, auth);
+        if (fail is not null) return fail;
+        var tenantId = op!.TenantId;
+
+        if (string.IsNullOrWhiteSpace(req.Name))
+            return Results.BadRequest(new { message = "Nombre requerido" });
+
+        var user = new User
+        {
+            Name = req.Name.Trim(),
+            Email = string.IsNullOrWhiteSpace(req.Email) ? null : req.Email.Trim(),
+            Phone = string.IsNullOrWhiteSpace(req.Phone) ? null : req.Phone.Trim(),
+            Balance = 0,
+            TotalSpent = 0,
+            TenantId = tenantId
+        };
+
+        db.Users.Add(user);
+        await db.SaveChangesAsync();
+
+        return Results.Ok(new
+        {
+            user.Id,
+            user.Name,
+            user.Email,
+            user.Phone,
+            user.Balance,
+            user.TotalSpent,
+            user.CreatedAt
+        });
+    }
+
+    private static async Task<IResult> HandleUpdateUserContact(
+        CashlessContext db,
+        HttpContext http,
+        IAuthService auth,
+        int id,
+        UpdateUserContactRequest req)
+    {
+        var (op, fail) = await RequireAdmin(db, http, auth);
+        if (fail is not null) return fail;
+        var tenantId = op!.TenantId;
+
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id && u.TenantId == tenantId);
+        if (user is null) return Results.NotFound(new { message = "Usuario no existe" });
+
+        user.Email = string.IsNullOrWhiteSpace(req.Email) ? null : req.Email.Trim();
+        user.Phone = string.IsNullOrWhiteSpace(req.Phone) ? null : req.Phone.Trim();
+
+        await db.SaveChangesAsync();
+
+        return Results.Ok(new
+        {
+            user.Id,
+            user.Name,
+            user.Email,
+            user.Phone,
+            user.Balance,
+            user.TotalSpent,
+            user.CreatedAt
+        });
+    }
+
+    private static async Task<IResult> HandleGetUsersCount(CashlessContext db, HttpContext http, IAuthService auth)
+    {
+        var (op, fail) = await RequireAdmin(db, http, auth);
+        if (fail is not null) return fail;
+        var tenantId = op!.TenantId;
+
+        var count = await db.Users
+            .Where(u => u.TenantId == tenantId)
+            .CountAsync();
+
+        return Results.Ok(new { count });
+    }
+
+    private static async Task<IResult> HandleGetUsersSummary(CashlessContext db, HttpContext http, IAuthService auth)
+    {
+        var (op, fail) = await RequireAdmin(db, http, auth);
+        if (fail is not null) return fail;
+        var tenantId = op!.TenantId;
+
+        var query = db.Users.Where(u => u.TenantId == tenantId);
+
+        var count = await query.CountAsync();
+        var totalBalance = await query.Select(u => u.Balance).DefaultIfEmpty(0m).SumAsync();
+        var totalSpent = await query.Select(u => u.TotalSpent).DefaultIfEmpty(0m).SumAsync();
+
+        return Results.Ok(new
+        {
+            count,
+            totalBalance,
+            totalSpent
+        });
+    }
 
     private static bool CanManageOperators(Operator op)
         => op.Role == OperatorRole.SuperAdmin || op.Role == OperatorRole.Admin;

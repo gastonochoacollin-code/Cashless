@@ -1,10 +1,18 @@
-// wwwroot/login.js
-// Compatible con common.js (NO redeclara $)
+﻿// wwwroot/login.js
+// Compatible con common.js (NO redeclara $ ni API_BASE)
 
 const el = (id) => document.getElementById(id);
 
 const SESSION_KEY = "cashless.session";
+const TENANT_KEY = "cashless.tenantId";
+const LOGIN_API_BASE = window.location.origin;
 
+function setMsgHtml(html){
+  const m = el("msg");
+  if(!m) return;
+  m.className = "status muted";
+  m.innerHTML = html || "";
+}
 function setMsg(t, cls="muted"){
   const m = el("msg");
   if(!m) return;
@@ -25,6 +33,17 @@ function getSession(){
 }
 function saveSession(s){
   localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+}
+
+function getTenantId(){
+  const selected = (el("tenantSelect")?.value || "").trim();
+  if(selected) return selected;
+
+  const stored = (localStorage.getItem(TENANT_KEY) || "").trim();
+  if(stored) return stored;
+
+  const s = getSession();
+  return s?.tenantId ? String(s.tenantId) : "";
 }
 
 function renderSession(){
@@ -50,111 +69,186 @@ async function fetchJsonWithTimeout(url, opts={}, ms=8000){
     const text = await res.text();
     let data = null;
     try{ data = text ? JSON.parse(text) : null; } catch { data = text; }
-    return { ok: res.ok, status: res.status, data };
+    return { ok: res.ok, status: res.status, data, raw: text };
   } finally {
     clearTimeout(t);
   }
 }
 
-async function loadOperators(){
-  setErr("");
-  setMsg("Cargando operadores…");
-  el("btnLogin").disabled = true;
-  el("btnReloadOps").disabled = true;
+function redact(v){
+  if(!v) return "";
+  const s = String(v);
+  if(s.length <= 12) return s;
+  return s.slice(0,8) + "…";
+}
 
-  try{
-    const r = await fetchJsonWithTimeout("/ops", {}, 8000);
-    if(!r.ok) throw new Error(`No pude cargar /ops (${r.status})`);
+function renderDebug(endpoint, status, raw, headers){
+  const body = (raw || "").toString().slice(0,500);
+  const hdrs = Object.entries(headers || {})
+    .map(([k,v]) => `${k}: ${redact(v)}`)
+    .join("; ");
 
-    const ops = Array.isArray(r.data) ? r.data : [];
-    const active = ops.filter(o => o && o.isActive !== false);
+  const errPart = status >= 400 || status === 0 ? ` · body: ${body}` : "";
+  setMsgHtml(
+    `Debug: ${endpoint} · ${status}${errPart}` +
+    `<br><span class="muted">Headers: ${hdrs || "(none)"}</span>`
+  );
+}
 
-    const sel = el("opSelect");
-    sel.innerHTML = "";
+function normalizeTenants(payload){
+  if(payload && typeof payload === "object" && Array.isArray(payload.tenants)){
+    return payload.tenants;
+  }
+  if(Array.isArray(payload)) return payload;
+  return [];
+}
 
-    if(active.length === 0){
-      setMsg("");
-      setErr("No hay operadores activos (o /ops devolvió vacío).");
-      return;
-    }
+function renderTenantSelector(tenants){
+  const box = el("tenantBox");
+  const select = el("tenantSelect");
+  if(!box || !select) return;
 
-    for(const o of active){
-      const opt = document.createElement("option");
-      opt.value = o.id;
-      opt.textContent = `${o.name} · ${o.role}${o.area ? " · " + o.area : ""}`;
-      sel.appendChild(opt);
-    }
+  select.innerHTML = "";
+  for(const t of tenants){
+    const id = t.id ?? t.Id;
+    const name = t.name ?? t.Name ?? `Tenant ${id}`;
+    if(id == null) continue;
+    const opt = document.createElement("option");
+    opt.value = String(id);
+    opt.textContent = `${id} - ${name}`;
+    select.appendChild(opt);
+  }
 
-    setMsg(`Operadores cargados ✅ (${active.length})`, "ok");
-  } catch(e){
-    setMsg("", "muted");
-    setErr(e?.name === "AbortError"
-      ? "Timeout cargando /ops. Revisa que el server esté accesible."
-      : (e.message || String(e)));
-  } finally {
-    el("btnLogin").disabled = false;
-    el("btnReloadOps").disabled = false;
+  const stored = (localStorage.getItem(TENANT_KEY) || "").trim();
+  if(stored){
+    select.value = stored;
+  } else if(select.options.length > 0){
+    select.selectedIndex = 0;
+  }
+
+  box.style.display = "block";
+}
+
+async function preloadTenantsIfNeeded(){
+  const r = await fetchJsonWithTimeout(`${LOGIN_API_BASE}/api/auth/operators`, {
+    method:"GET"
+  }, 8000);
+
+  if(r.ok) return;
+
+  const tenants = normalizeTenants(r.data);
+  if(r.status === 400 && tenants.length > 0){
+    renderTenantSelector(tenants);
+    setMsg("Selecciona tenant para iniciar sesión.");
   }
 }
 
 async function doLogin(){
   setErr("");
 
-  const operatorId = parseInt(el("opSelect").value, 10);
+  const operatorRaw = (el("operatorName").value || "").trim();
   const pin = (el("pin").value || "").trim();
 
-  if(!operatorId) return setErr("Selecciona un operador.");
+  if(!operatorRaw) return setErr("Operador requerido.");
   if(!pin) return setErr("NIP requerido.");
 
   el("btnLogin").disabled = true;
-  el("btnReloadOps").disabled = true;
   setMsg("Validando NIP…");
 
+  const tenantId = getTenantId();
+  const headers = {
+    "Content-Type":"application/json",
+    ...(tenantId ? { "X-Tenant-Id": tenantId } : {})
+  };
+
   try{
-    const r = await fetchJsonWithTimeout("/auth/login", {
+    const isNumeric = /^[0-9]+$/.test(operatorRaw);
+    const body = {
+      ...(isNumeric ? { operatorId: Number(operatorRaw) } : { operatorName: operatorRaw }),
+      pin
+    };
+
+    const r = await fetchJsonWithTimeout(`${LOGIN_API_BASE}/api/auth/login`, {
       method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ operatorId, pin })
+      headers,
+      body: JSON.stringify(body)
     }, 8000);
 
     if(!r.ok){
-      const msg = (r.data && typeof r.data === "object" && r.data.message)
+      let msg = (r.data && typeof r.data === "object" && r.data.message)
         ? r.data.message
         : `Login falló (${r.status})`;
-      throw new Error(msg);
+      if(r.status === 401) msg = "NIP incorrecto";
+      if(r.status === 404) msg = "Operador no encontrado";
+      if(r.status === 400 && /tenant/i.test(String(msg))){
+        await preloadTenantsIfNeeded().catch(()=>{});
+      }
+      setErr(msg);
+      renderDebug("/api/auth/login", r.status, r.raw, headers);
+      return;
     }
 
-   // Normaliza respuesta por si viene anidada como { data: { token, ... } }
-const payload = (r.data && typeof r.data === "object" && r.data.data && typeof r.data.data === "object")
-  ? r.data.data
-  : r.data;
+    const payload = (r.data && typeof r.data === "object" && r.data.data && typeof r.data.data === "object")
+      ? r.data.data
+      : r.data;
 
-saveSession(payload);
+    const role = payload?.role
+      || payload?.Role
+      || payload?.operator?.role
+      || payload?.operator?.Role
+      || payload?.user?.role
+      || payload?.user?.Role
+      || "";
+
+    if(role && typeof payload === "object"){
+      payload.role = role;
+    }
+
+    if(payload?.token){
+      localStorage.setItem("token", payload.token);
+      localStorage.setItem("jwt", payload.token);
+      localStorage.setItem("authToken", payload.token);
+    }
+    if(payload?.jwt){
+      localStorage.setItem("token", payload.jwt);
+      localStorage.setItem("jwt", payload.jwt);
+      localStorage.setItem("authToken", payload.jwt);
+    }
+    if(payload?.tenantId){
+      localStorage.setItem(TENANT_KEY, String(payload.tenantId));
+    }
+
+    saveSession(payload);
     el("pin").value = "";
     renderSession();
-    setMsg("Login correcto ✅ (ya puedes ir al Dashboard)", "ok");
+    setMsgHtml("Login correcto. Redirigiendo…");
+    const isAdmin = ["Admin","SuperAdmin"].includes(String(role || ""));
+    window.location.href = isAdmin ? "/operators.html" : "/ops.html";
   } catch(e){
-    setMsg("", "muted");
-    setErr(e?.name === "AbortError"
-      ? "Timeout en /auth/login. Revisa el servidor."
-      : (e.message || String(e)));
+    const msg = e?.name === "AbortError"
+      ? "Timeout en /api/auth/login. Revisa el servidor."
+      : (e.message || String(e));
+    setErr(msg);
+    renderDebug("/api/auth/login", 0, msg, headers);
   } finally {
     el("btnLogin").disabled = false;
-    el("btnReloadOps").disabled = false;
   }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   renderSession();
+  preloadTenantsIfNeeded().catch(()=>{});
 
-  el("btnReloadOps").addEventListener("click", loadOperators);
   el("btnLogin").addEventListener("click", doLogin);
   el("pin").addEventListener("keydown", (e)=>{ if(e.key === "Enter") doLogin(); });
+  el("operatorName").addEventListener("keydown", (e)=>{ if(e.key === "Enter") doLogin(); });
 
   el("btnGoDash").addEventListener("click", ()=>{
     window.location.href = "/dashboard.html";
   });
 
-  // Carga 1 vez al abrir
-  loadOperators();
+  el("tenantSelect")?.addEventListener("change", (e)=>{
+    const v = String(e.target?.value || "").trim();
+    if(v) localStorage.setItem(TENANT_KEY, v);
+  });
 });
