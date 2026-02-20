@@ -2,6 +2,7 @@
 using Cashless.Api.Models;
 using Cashless.Api.Services.Auth;
 using Cashless.Api.Services.Infra;
+using Cashless.Api.Services.Reportes;
 using Cashless.Api.Endpoints;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,6 +14,7 @@ builder.Services.AddDbContext<CashlessContext>(opt =>
     opt.UseSqlite("Data Source=cashless.db"));
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddSingleton<IUidState, InMemoryUidState>();
+builder.Services.AddScoped<IReportService, ReportService>();
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -66,6 +68,7 @@ app.MapPosEndpoints();
 app.MapAdminEndpoints();
 app.MapAuthEndpoints();
 app.Run();
+
 
 
 
