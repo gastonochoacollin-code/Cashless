@@ -1342,10 +1342,6 @@ var ROLE_PERMS = new Dictionary<OperatorRole, HashSet<string>>()
     }, StringComparer.OrdinalIgnoreCase),
 };
 
-bool HasPerm(Operator op, string perm)
-{
-    return ROLE_PERMS.TryGetValue(op.Role, out var set) && set.Contains(perm);
-}
 
 app.MapGet("/api/permissions", async (CashlessContext db, HttpContext http, IAuthService auth) =>
 {
@@ -1446,6 +1442,7 @@ app.MapGet("/api/reports2/summary", async Task<IResult> (CashlessContext db, Htt
 
 
 app.Run();
+
 
 
 
