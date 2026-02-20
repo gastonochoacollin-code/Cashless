@@ -4,6 +4,7 @@ using Cashless.Api.Dtos.Auth;
 using Cashless.Api.Dtos.Barra;
 using Cashless.Api.Models;
 using Cashless.Api.Services.Auth;
+using Cashless.Api.Services.Infra;
 using Microsoft.EntityFrameworkCore;
 
 Console.WriteLine("🔥 PROGRAM.CS (Cashless.Api) 🔥");
@@ -13,6 +14,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<CashlessContext>(opt =>
     opt.UseSqlite("Data Source=cashless.db"));
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddSingleton<IUidState, InMemoryUidState>();
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -153,27 +155,21 @@ app.MapGet("/api/reports1/top-products", async (CashlessContext db, HttpRequest 
 // =======================
 // NFC UID (last read) + bloqueo 1 cobro por lectura
 // =======================
-string? lastUid = null;
-string? pendingChargeUid = null; // “permiso” consumible para 1 cobro
 
-app.MapPost("/uid", (UidRequest req) =>
+app.MapPost("/uid", (UidRequest req, IUidState uidState) =>
 {
-    lastUid = (req.uid ?? "").Trim().ToUpperInvariant();
-    Console.WriteLine($"UID leído: {lastUid}");
+    uidState.SetLastUid((req.uid ?? "").Trim().ToUpperInvariant());
+    Console.WriteLine($"UID leído: { (req.uid ?? "").Trim().ToUpperInvariant() }");
     return Results.Ok(new { ok = true });
 });
 
-app.MapGet("/last-uid", () =>
+app.MapGet("/last-uid", (IUidState uidState) =>
 {
     // Nunca 404 para no spamear consola del dashboard.
     // Si no hay UID, devolvemos uid vacío.
-    if (string.IsNullOrWhiteSpace(lastUid))
+    if (!uidState.TryTakeLastUid(out var uid))
         return Results.Ok(new { uid = "" });
 
-    pendingChargeUid = lastUid;
-
-    var uid = lastUid;
-    lastUid = null; // consumimos la lectura
     return Results.Ok(new { uid });
 });
 // =======================
@@ -885,7 +881,7 @@ app.MapPost("/topup", async Task<IResult> (CashlessContext db, HttpContext http,
     return Results.Ok(new { newBalance = card.User.Balance });
 });
 
-app.MapPost("/charge", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, ChargeRequest req) =>
+app.MapPost("/charge", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, IUidState uidState, ChargeRequest req) =>
 {
     var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
@@ -895,10 +891,8 @@ app.MapPost("/charge", async Task<IResult> (CashlessContext db, HttpContext http
     if (req.Amount <= 0) return Results.BadRequest(new { message = "Monto inválido" });
 
     // ?? solo 1 cobro por lectura
-    if (pendingChargeUid == null || pendingChargeUid != uid)
+    if (!uidState.ConsumePendingIfMatches(uid))
         return Results.BadRequest(new { message = "Esta pulsera ya fue usada o no fue leída recientemente" });
-
-    pendingChargeUid = null; // consume permiso
 
     var card = await db.Cards.Include(c => c.User).FirstOrDefaultAsync(c => c.Uid == uid);
     if (card is null) return Results.NotFound(new { message = "Pulsera no asignada" });
@@ -928,7 +922,7 @@ app.MapPost("/charge", async Task<IResult> (CashlessContext db, HttpContext http
 // - Crea 1 tx de SUBTOTAL + 1 tx de TIP (si aplica) + 1 tx de DONATION (si aplica)
 // =======================
 
-app.MapPost("/charge-v2", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, ChargeRequestV2 req) =>
+app.MapPost("/charge-v2", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, IUidState uidState, ChargeRequestV2 req) =>
 {
     var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
@@ -943,10 +937,8 @@ app.MapPost("/charge-v2", async Task<IResult> (CashlessContext db, HttpContext h
     if (req.DonationPercent < 0 || req.DonationPercent > 100) return Results.BadRequest(new { message = "DonationPercent inválido (0-100)" });
 
     // ?? solo 1 cobro por lectura
-    if (pendingChargeUid == null || pendingChargeUid != uid)
+    if (!uidState.ConsumePendingIfMatches(uid))
         return Results.BadRequest(new { message = "Esta pulsera ya fue usada o no fue leída recientemente" });
-
-    pendingChargeUid = null; // consume permiso
 
     var card = await db.Cards.Include(c => c.User).FirstOrDefaultAsync(c => c.Uid == uid);
     if (card is null) return Results.NotFound(new { message = "Pulsera no asignada" });
@@ -1442,6 +1434,9 @@ app.MapGet("/api/reports2/summary", async Task<IResult> (CashlessContext db, Htt
 
 
 app.Run();
+
+
+
 
 
 
