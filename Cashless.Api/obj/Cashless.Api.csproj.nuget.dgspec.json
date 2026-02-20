@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "c:\\Users\\Adrian\\source\\repos\\Cashless\\Cashless.Api\\Cashless.Api.csproj": {}
+    "C:\\Users\\Adrian\\source\\repos\\Cashless\\Cashless.Api\\Cashless.Api.csproj": {}
   },
   "projects": {
-    "c:\\Users\\Adrian\\source\\repos\\Cashless\\Cashless.Api\\Cashless.Api.csproj": {
+    "C:\\Users\\Adrian\\source\\repos\\Cashless\\Cashless.Api\\Cashless.Api.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "c:\\Users\\Adrian\\source\\repos\\Cashless\\Cashless.Api\\Cashless.Api.csproj",
+        "projectUniqueName": "C:\\Users\\Adrian\\source\\repos\\Cashless\\Cashless.Api\\Cashless.Api.csproj",
         "projectName": "Cashless.Api",
-        "projectPath": "c:\\Users\\Adrian\\source\\repos\\Cashless\\Cashless.Api\\Cashless.Api.csproj",
+        "projectPath": "C:\\Users\\Adrian\\source\\repos\\Cashless\\Cashless.Api\\Cashless.Api.csproj",
         "packagesPath": "C:\\Users\\Adrian\\.nuget\\packages\\",
-        "outputPath": "c:\\Users\\Adrian\\source\\repos\\Cashless\\Cashless.Api\\obj\\",
+        "outputPath": "C:\\Users\\Adrian\\source\\repos\\Cashless\\Cashless.Api\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"

@@ -1,4 +1,7 @@
 ﻿using Cashless.Api.Data;
+using Cashless.Api.Dtos.Admin;
+using Cashless.Api.Dtos.Auth;
+using Cashless.Api.Dtos.Barra;
 using Cashless.Api.Models;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Cryptography;
@@ -141,7 +144,7 @@ app.MapGet("/api/reports1/summary", async (CashlessContext db, HttpRequest req,
     var fromDt = DateTime.TryParse(from, out var f) ? f.Date : DateTime.Today.AddDays(-6);
     var toDt   = DateTime.TryParse(to, out var t) ? t.Date.AddDays(1) : DateTime.Today.AddDays(1);
 
-    // 👇 OJO: ajusta nombres si tus entidades difieren:
+    // ?? OJO: ajusta nombres si tus entidades difieren:
     // Ventas: idealmente desde Sales (si existe)
     var salesQ = db.Sales.AsQueryable()
         .Where(s => s.CreatedAt >= fromDt && s.CreatedAt < toDt);
@@ -177,7 +180,7 @@ app.MapGet("/api/reports1/top-products", async (CashlessContext db, HttpRequest 
     var toDt   = DateTime.TryParse(to, out var t) ? t.Date.AddDays(1) : DateTime.Today.AddDays(1);
     var limit = (take.HasValue && take.Value > 0 && take.Value <= 50) ? take.Value : 10;
 
-    // 👇 Top productos desde SaleItems (ajusta nombres si difieren)
+    // ?? Top productos desde SaleItems (ajusta nombres si difieren)
     var q = db.SaleItems
         .Where(i => i.Sale.CreatedAt >= fromDt && i.Sale.CreatedAt < toDt);
 
@@ -944,7 +947,7 @@ app.MapPost("/charge", async Task<IResult> (CashlessContext db, HttpContext http
     if (string.IsNullOrWhiteSpace(uid)) return Results.BadRequest(new { message = "UID requerido" });
     if (req.Amount <= 0) return Results.BadRequest(new { message = "Monto inválido" });
 
-    // 🔒 solo 1 cobro por lectura
+    // ?? solo 1 cobro por lectura
     if (pendingChargeUid == null || pendingChargeUid != uid)
         return Results.BadRequest(new { message = "Esta pulsera ya fue usada o no fue leída recientemente" });
 
@@ -992,7 +995,7 @@ app.MapPost("/charge-v2", async Task<IResult> (CashlessContext db, HttpContext h
     if (req.TipAmount < 0) return Results.BadRequest(new { message = "TipAmount inválido" });
     if (req.DonationPercent < 0 || req.DonationPercent > 100) return Results.BadRequest(new { message = "DonationPercent inválido (0-100)" });
 
-    // 🔒 solo 1 cobro por lectura
+    // ?? solo 1 cobro por lectura
     if (pendingChargeUid == null || pendingChargeUid != uid)
         return Results.BadRequest(new { message = "Esta pulsera ya fue usada o no fue leída recientemente" });
 
@@ -1498,43 +1501,6 @@ app.MapGet("/api/reports2/summary", async Task<IResult> (CashlessContext db, Htt
 app.Run();
 
 
-// =======================
-// Records / DTOs (AL FINAL)
-// =======================
-record UidRequest(string uid);
-record LoginRequest(int OperatorId, string Pin);
-
-// USERS / CARDS
-record CreateUserRequest(string Name, string? Email, string? Phone);
-record AssignCardRequest(int UserId, string Uid);
-record TopupRequest(string Uid, decimal Amount);
-record ChargeRequest(string Uid, decimal Amount);
-record UpdateUserContactRequest(string? Email, string? Phone);
-record ReassignCardRequest(int UserId, string Uid);
-
-// AREAS
-record AreaUpsertDto(string Name, string? Type, bool IsActive, string? CustomType);
-
-// PRODUCTS
-record ProductUpsertDto(string Name, decimal Price, string? Category, bool IsActive);
-
-// AREA MENU (links)
-record AreaProductCreateDto(int ProductId, decimal? PriceOverride, bool IsActive);
-record AreaProductUpdateDto(decimal? PriceOverride, bool IsActive);
-
-// OPERATORS
-record OperatorUpsertDto(string Name, string? Role, string? Pin, int? AreaId, bool IsActive);
 
 
-// ====== CHARGE V2 DTOs (para /charge-v2) ======
-record ChargeItemDto(int ProductId, int Qty);
 
-record ChargeRequestV2(
-    string? Uid,
-    int AreaId,
-    int OperatorId,
-    decimal TipAmount,
-    decimal DonationPercent,
-    int? DonationProjectId,
-    List<ChargeItemDto> Items
-);

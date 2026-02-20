@@ -132,3 +132,4 @@ c:\Users\Adrian\source\repos\Cashless\Cashless.Api\obj\Debug\net8.0\Cashless.Api
 c:\Users\Adrian\source\repos\Cashless\Cashless.Api\obj\Debug\net8.0\ref\Cashless.Api.dll
 c:\Users\Adrian\source\repos\Cashless\Cashless.Api\bin\Debug\net8.0\PCSC.dll
 c:\Users\Adrian\source\repos\Cashless\Cashless.Api\bin\Debug\net8.0\PCSC.Iso7816.dll
+C:\Users\Adrian\source\repos\Cashless\Cashless.Api\obj\Debug\net8.0\Cashless.Api.sourcelink.json

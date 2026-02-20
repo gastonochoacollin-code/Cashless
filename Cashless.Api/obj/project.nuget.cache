@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "nL7JfkGcmqs=",
+  "dgSpecHash": "/ItyA+a779w=",
   "success": true,
-  "projectFilePath": "c:\\Users\\Adrian\\source\\repos\\Cashless\\Cashless.Api\\Cashless.Api.csproj",
+  "projectFilePath": "C:\\Users\\Adrian\\source\\repos\\Cashless\\Cashless.Api\\Cashless.Api.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\Adrian\\.nuget\\packages\\humanizer.core\\2.14.1\\humanizer.core.2.14.1.nupkg.sha512",
     "C:\\Users\\Adrian\\.nuget\\packages\\microsoft.aspnetcore.openapi\\8.0.2\\microsoft.aspnetcore.openapi.8.0.2.nupkg.sha512",
@@ -61,5 +61,15 @@
     "C:\\Users\\Adrian\\.nuget\\packages\\system.text.json\\8.0.0\\system.text.json.8.0.0.nupkg.sha512",
     "C:\\Users\\Adrian\\.nuget\\packages\\system.threading.channels\\6.0.0\\system.threading.channels.6.0.0.nupkg.sha512"
   ],
-  "logs": []
+  "logs": [
+    {
+      "code": "NU1900",
+      "level": "Warning",
+      "message": "Error al obtener los datos de vulnerabilidad del paquete: No se puede cargar el índice de servicio para el origen https://api.nuget.org/v3/index.json.",
+      "projectPath": "C:\\Users\\Adrian\\source\\repos\\Cashless\\Cashless.Api\\Cashless.Api.csproj",
+      "warningLevel": 1,
+      "filePath": "C:\\Users\\Adrian\\source\\repos\\Cashless\\Cashless.Api\\Cashless.Api.csproj",
+      "targetGraphs": []
+    }
+  ]
 }
