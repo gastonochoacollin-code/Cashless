@@ -4,6 +4,9 @@ public class OperatorArea
 {
     public int Id { get; set; }
 
+    public int TenantId { get; set; }
+    public Tenant Tenant { get; set; } = default!;
+
     public int OperatorId { get; set; }
     public Operator Operator { get; set; } = default!;
 

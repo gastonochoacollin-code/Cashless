@@ -1,4 +1,4 @@
-// wwwroot/dashboard.js
+﻿// wwwroot/dashboard.js
 // Requiere common.js (apiJson, requireSession, getSession, clearSession, $)
 
 requireSession();
@@ -31,24 +31,77 @@ async function safeJson(url, opts){
   }
 }
 
+async function loadFestivals(){
+  const select = $("festivalSelect");
+  if(!select) return;
+
+  select.innerHTML = `<option value="">Cargando...</option>`;
+
+  const res = await safeJson("/api/festivals");
+  if(!res.ok){
+    select.innerHTML = `<option value="">Error al cargar</option>`;
+    return;
+  }
+
+  const list = res.data || [];
+  select.innerHTML = "";
+
+  if(list.length === 0){
+    select.innerHTML = `<option value="">Sin festivales</option>`;
+    return;
+  }
+
+  let activeId = "";
+  for(const f of list){
+    const id = f.id ?? f.Id;
+    const name = f.name ?? f.Name ?? `Festival ${id}`;
+    const isActive = (f.isActive ?? f.IsActive) === true;
+    if(isActive) activeId = String(id);
+    const opt = document.createElement("option");
+    opt.value = String(id);
+    opt.textContent = isActive ? `${name} (activo)` : name;
+    select.appendChild(opt);
+  }
+
+  if(activeId) select.value = activeId;
+}
+
+async function activateFestival(){
+  const select = $("festivalSelect");
+  const id = select?.value;
+  if(!id){
+    setMsg("Selecciona un festival", true);
+    return;
+  }
+
+  const res = await safeJson(`/api/festivals/${id}/activate`, { method:"POST" });
+  if(!res.ok){
+    setMsg("No se pudo activar el festival", true);
+    return;
+  }
+
+  await loadFestivals();
+  setMsg("Festival activado");
+}
+
 async function testLastUid(){
-  // /last-uid es público
+  // /last-uid es pÃºblico
   try{
     const res = await fetch("/last-uid", { cache:"no-store" });
 
     if(!res.ok){
       // 404 = OK pero no hay UID
       pill("stUid", true, "OK (sin UID)");
-      $("lastUid").textContent = "—";
-      $("kpiNfc").textContent = "—";
+      $("lastUid").textContent = "â€”";
+      $("kpiNfc").textContent = "â€”";
       return null;
     }
 
     const j = await res.json();
     const uid = (j?.uid || "").trim().toUpperCase();
 
-    $("lastUid").textContent = uid || "—";
-    $("kpiNfc").textContent = uid || "—";
+    $("lastUid").textContent = uid || "â€”";
+    $("kpiNfc").textContent = uid || "â€”";
     pill("stUid", true, "OK");
 
     return uid;
@@ -61,12 +114,12 @@ async function testLastUid(){
 async function load(){
   const s = getSession();
   if(s?.name){
-    $("who").textContent = `Hola, ${s.name} · Área: ${s.area || "—"} · Rol: ${s.role || "—"}`;
+    $("who").textContent = `Hola, ${s.name} Â· Ãrea: ${s.area || "â€”"} Â· Rol: ${s.role || "â€”"}`;
     $("kpiOp").textContent = s.name;
-    $("kpiRole").textContent = s.role || "—";
+    $("kpiRole").textContent = s.role || "â€”";
     pill("stSession", true, "OK");
   }else{
-    $("who").textContent = "Sesión no encontrada";
+    $("who").textContent = "SesiÃ³n no encontrada";
     pill("stSession", false, "NO");
   }
 
@@ -81,8 +134,8 @@ async function load(){
     $("kpiAreasTotal").textContent = String(areas.length);
     pill("stAreas", true, "OK");
   }else{
-    $("kpiAreas").textContent = "—";
-    $("kpiAreasTotal").textContent = "—";
+    $("kpiAreas").textContent = "â€”";
+    $("kpiAreasTotal").textContent = "â€”";
     pill("stAreas", false, "ERROR");
   }
 
@@ -113,7 +166,7 @@ async function load(){
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td class="mono">${x.id ?? x.Id}</td>
-        <td>${(x.name ?? x.Name) || "—"}</td>
+        <td>${(x.name ?? x.Name) || "â€”"}</td>
         <td>${money(x.balance ?? x.Balance)}</td>
         <td>${money(x.totalSpent ?? x.TotalSpent)}</td>
       `;
@@ -122,19 +175,22 @@ async function load(){
 
     pill("stUsers", true, "OK");
   }else{
-    $("kpiUsers").textContent = "—";
-    $("kpiSold").textContent = "—";
-    $("kpiBalanceTotal").textContent = "—";
+    $("kpiUsers").textContent = "â€”";
+    $("kpiSold").textContent = "â€”";
+    $("kpiBalanceTotal").textContent = "â€”";
     $("recentUsers").innerHTML = "";
     pill("stUsers", false, "ERROR");
   }
 
+  await loadFestivals();
   await testLastUid();
-  setMsg("Listo ✅");
+  setMsg("Listo âœ…");
 }
 
 $("btnReload").addEventListener("click", ()=> load().catch(e=>setMsg(e.message,true)));
 $("btnTestUid").addEventListener("click", ()=> testLastUid());
+$("btnFestivalActivate")?.addEventListener("click", ()=> activateFestival());
+
 $("btnLogout").addEventListener("click", ()=>{
   try{ clearSession(); }catch{}
   location.href = "/login.html";
@@ -142,3 +198,4 @@ $("btnLogout").addEventListener("click", ()=>{
 
 load();
 setInterval(testLastUid, 1500);
+

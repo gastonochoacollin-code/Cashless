@@ -24,6 +24,18 @@ public class AuthService : IAuthService
         return Convert.ToHexString(sha.ComputeHash(Encoding.UTF8.GetBytes($"{operatorId}:{pinHash}")));
     }
 
+    public int? ReadTenantId(HttpRequest req)
+    {
+        string? tenantRaw =
+            req.Headers["X-Tenant-Id"].FirstOrDefault()
+            ?? req.Headers["X-TenantId"].FirstOrDefault()
+            ?? req.Headers["tenantid"].FirstOrDefault()
+            ?? req.Headers["TenantId"].FirstOrDefault();
+
+        if (!int.TryParse(tenantRaw, out var id)) return null;
+        return id;
+    }
+
     public int? ReadOperatorId(HttpRequest req)
     {
         string? opIdRaw =
@@ -60,11 +72,20 @@ public class AuthService : IAuthService
         var tokenRaw = ReadToken(req);
         if (string.IsNullOrWhiteSpace(tokenRaw)) return null;
 
-        var op = await db.Operators
+        var tenantId = ReadTenantId(req);
+        var query = db.Operators
             .Include(o => o.Area)
-            .FirstOrDefaultAsync(o => o.Id == id.Value && o.IsActive);
+            .Where(o => o.IsActive);
+
+        if (tenantId.HasValue)
+            query = query.Where(o => o.TenantId == tenantId.Value);
+
+        var op = await query.FirstOrDefaultAsync(o => o.Id == id.Value);
 
         if (op is null) return null;
+
+        if (tenantId.HasValue && op.TenantId != tenantId.Value)
+            return null;
 
         var expected = MakeToken(op.Id, op.PinHash);
         if (!string.Equals(expected, tokenRaw, StringComparison.OrdinalIgnoreCase))

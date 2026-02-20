@@ -12,6 +12,9 @@ public class CashlessContext : DbContext
     public DbSet<Card> Cards => Set<Card>();
     public DbSet<Transaction> Transactions => Set<Transaction>();
 
+    public DbSet<Tenant> Tenants => Set<Tenant>();
+    public DbSet<Festival> Festivals => Set<Festival>();
+
     public DbSet<Area> Areas => Set<Area>();
     public DbSet<Operator> Operators => Set<Operator>();
     public DbSet<OperatorArea> OperatorAreas => Set<OperatorArea>();
@@ -24,6 +27,9 @@ public class CashlessContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<Tenant>()
+            .HasIndex(t => t.Name);
+
         // Area -> Operators
         modelBuilder.Entity<Area>()
             .HasMany(a => a.Operators)

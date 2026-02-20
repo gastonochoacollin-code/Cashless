@@ -1,0 +1,46 @@
+  async function load(){
+    showErr("");
+
+    const from = el("fromDate").value;
+    const to = el("toDate").value;
+    el("rangePill").textContent = `${from} ? ${to}`;
+
+    try{
+      const summary = await getWithFallback([
+        `/api/reports/summary?from=${from}&to=${to}`,
+        `/api/reports2/summary?from=${from}&to=${to}`,
+        `/api/reports1/summary?from=${from}&to=${to}`
+      ]);
+
+      const topResp = await getWithFallback([
+        `/api/reports/top-products?from=${from}&to=${to}&take=10`,
+        `/api/reports1/top-products?from=${from}&to=${to}&take=10`
+      ]);
+
+      const salesByArea = await getWithFallback([
+        `/api/reports/sales-by-area?from=${from}&to=${to}`
+      ]);
+
+      const norm = normalizeSummary(summary);
+      if (!norm) throw new Error("Respuesta inválida de summary");
+
+      renderSummary(norm);
+      renderTop(normalizeTop(topResp));
+      renderSalesByArea(salesByArea);
+    } catch (e){
+      if (e.status === 401) {
+        showErr("Sesión expirada");
+        return;
+      }
+      if (e.status === 404) {
+        const failedPath = e.path || "endpoint desconocido";
+        showErr(`404: ${failedPath}`);
+        return;
+      }
+      if (e.status === 500) {
+        showErr("Error del servidor. Intenta más tarde.");
+        return;
+      }
+      showErr(e.message || "Error inesperado");
+    }
+  }

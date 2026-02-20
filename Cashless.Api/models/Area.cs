@@ -3,6 +3,9 @@ namespace Cashless.Api.Models;
 public class Area
 {
     public int Id { get; set; }
+
+    public int TenantId { get; set; }
+    public Tenant Tenant { get; set; } = null!;
     public string Name { get; set; } = string.Empty;
     public string? CustomType { get; set; }
     public AreaType Type { get; set; } = AreaType.General;

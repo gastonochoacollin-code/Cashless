@@ -1,9 +1,9 @@
-<!doctype html>
-<html lang="es">
-<head>
+﻿<!doctype html>
+        <html lang="es">
+        <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Dashboard · Cashless</title>
+  <title>Dashboard Â· Cashless</title>
 
   <script defer src="common.js"></script>
   <script defer src="dashboard.js"></script>
@@ -55,14 +55,14 @@
     th{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#cfd3da;text-align:left}
     .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
   </style>
-</head>
+        </head>
 
-<body>
+        <body>
   <div class="wrap">
     <div class="top">
       <div class="brand">
         <div class="title">Dashboard</div>
-        <div class="muted" id="who">—</div>
+        <div class="muted" id="who">â€”</div>
       </div>
 
       <!-- NAV COMPLETO -->
@@ -70,11 +70,15 @@
         <a class="btn alt" href="dashboard.html">Dashboard</a>
         <a class="btn alt" href="barra.html">POS</a>
         <a class="btn alt" href="barras.html">Barras</a>
-        <a class="btn alt" href="menus.html">Menús</a>
+        <a class="btn alt" href="menus.html">MenÃºs</a>
         <a class="btn alt" href="operators.html">Colaboradores</a>
         <a class="btn alt" href="usuarios.html">Usuarios</a>
+                <a class="btn alt" href="reports.html">Reportes</a>
         <a class="btn alt" href="admin.html">Admin</a>
-        <button id="btnLogout" class="btn danger">Cerrar sesión</button>
+                <label class="muted">Festival activo</label>
+        <select id="festivalSelect" class="field"></select>
+        <button id="btnFestivalActivate" class="btn alt small">Activar</button>
+        <button id="btnLogout" class="btn danger">Cerrar sesiÃ³n</button>
       </div>
     </div>
 
@@ -82,38 +86,38 @@
     <div class="grid2">
       <div class="card kpi">
         <div class="muted">Operador</div>
-        <div class="v" id="kpiOp">—</div>
-        <div class="muted">Rol: <span class="mono" id="kpiRole">—</span></div>
+        <div class="v" id="kpiOp">â€”</div>
+        <div class="muted">Rol: <span class="mono" id="kpiRole">â€”</span></div>
       </div>
 
       <div class="card kpi">
         <div class="muted">Barras activas</div>
-        <div class="v" id="kpiAreas">—</div>
-        <div class="muted">Total barras: <span id="kpiAreasTotal">—</span></div>
+        <div class="v" id="kpiAreas">â€”</div>
+        <div class="muted">Total barras: <span id="kpiAreasTotal">â€”</span></div>
       </div>
 
       <div class="card kpi">
         <div class="muted">Usuarios</div>
-        <div class="v" id="kpiUsers">—</div>
-        <div class="muted">Últimos 10 (lista)</div>
+        <div class="v" id="kpiUsers">â€”</div>
+        <div class="muted">Ãšltimos 10 (lista)</div>
       </div>
 
       <div class="card kpi">
         <div class="muted">Total vendido</div>
-        <div class="v" id="kpiSold">—</div>
+        <div class="v" id="kpiSold">â€”</div>
         <div class="muted">Suma de <span class="mono">TotalSpent</span></div>
       </div>
 
       <div class="card kpi">
         <div class="muted">Saldo total</div>
-        <div class="v" id="kpiBalanceTotal">—</div>
+        <div class="v" id="kpiBalanceTotal">â€”</div>
         <div class="muted">Suma de <span class="mono">Balance</span></div>
       </div>
 
       <div class="card kpi">
         <div class="muted">Lector NFC</div>
-        <div class="v" id="kpiNfc">—</div>
-        <div class="muted">Último UID detectado</div>
+        <div class="v" id="kpiNfc">â€”</div>
+        <div class="muted">Ãšltimo UID detectado</div>
       </div>
     </div>
 
@@ -122,7 +126,7 @@
       <div class="card">
         <div class="split">
           <div>
-            <div style="font-weight:1000">Acciones rápidas</div>
+            <div style="font-weight:1000">Acciones rÃ¡pidas</div>
             <div class="muted">Todo lo importante en un clic.</div>
           </div>
           <div class="row">
@@ -134,19 +138,20 @@
 
         <div class="row">
           <a class="btn" href="barras.html">Barras</a>
-          <a class="btn" href="menus.html">Menús</a>
+          <a class="btn" href="menus.html">MenÃºs</a>
           <a class="btn" href="operators.html">Colaboradores</a>
           <a class="btn" href="usuarios.html">Usuarios</a>
           <a class="btn" href="admin.html">Asignar pulseras</a>
-          <a class="btn alt" href="barra.html">Cobrar (POS)</a>
+                    <a class="btn" href="reports.html">Reportes</a>
+        <a class="btn alt" href="barra.html">Cobrar (POS)</a>
         </div>
 
         <div class="muted" style="margin-top:12px" id="msg"></div>
 
         <hr />
 
-        <div style="font-weight:1000">Usuarios recientes (últimos 10)</div>
-        <div class="muted">Para revisar rápido si está guardando y acumulando gastado.</div>
+        <div style="font-weight:1000">Usuarios recientes (Ãºltimos 10)</div>
+        <div class="muted">Para revisar rÃ¡pido si estÃ¡ guardando y acumulando gastado.</div>
 
         <div style="overflow:auto;margin-top:10px">
           <table>
@@ -165,46 +170,50 @@
 
       <div class="card">
         <div style="font-weight:1000">Estado del sistema</div>
-        <div class="muted">Diagnóstico rápido: auth, endpoints y NFC.</div>
+        <div class="muted">DiagnÃ³stico rÃ¡pido: auth, endpoints y NFC.</div>
 
         <hr />
 
         <div class="row" style="justify-content:space-between">
           <div>
-            <div class="muted">Sesión</div>
-            <div id="stSession" class="pill bad">—</div>
+            <div class="muted">SesiÃ³n</div>
+            <div id="stSession" class="pill bad">â€”</div>
           </div>
           <div>
             <div class="muted">/api/areas</div>
-            <div id="stAreas" class="pill bad">—</div>
+            <div id="stAreas" class="pill bad">â€”</div>
           </div>
         </div>
 
         <div class="row" style="justify-content:space-between;margin-top:10px">
           <div>
             <div class="muted">/users</div>
-            <div id="stUsers" class="pill bad">—</div>
+            <div id="stUsers" class="pill bad">â€”</div>
           </div>
           <div>
             <div class="muted">/last-uid</div>
-            <div id="stUid" class="pill bad">—</div>
+            <div id="stUid" class="pill bad">â€”</div>
           </div>
         </div>
 
         <hr />
 
-        <div class="muted">Último UID:</div>
-        <div class="mono" id="lastUid" style="font-size:18px;font-weight:900">—</div>
+        <div class="muted">Ãšltimo UID:</div>
+        <div class="mono" id="lastUid" style="font-size:18px;font-weight:900">â€”</div>
 
         <div class="row" style="margin-top:12px">
           <button id="btnTestUid" class="btn alt small">Probar NFC ahora</button>
         </div>
 
         <div class="muted" style="margin-top:10px">
-          Si el UID no cambia, el lector no está posteando a <span class="mono">/uid</span>.
+          Si el UID no cambia, el lector no estÃ¡ posteando a <span class="mono">/uid</span>.
         </div>
       </div>
     </div>
   </div>
-</body>
-</html>
+        </body>
+        </html>
+
+
+
+

@@ -1,6 +1,6 @@
 namespace Cashless.Api.Models;
 
-public class Product
+public class Festival
 {
     public int Id { get; set; }
 
@@ -9,11 +9,11 @@ public class Product
 
     public string Name { get; set; } = string.Empty;
 
-    public decimal Price { get; set; } = 0m;
+    public DateTime StartDate { get; set; }
 
-    public string? Category { get; set; }
+    public DateTime EndDate { get; set; }
 
-    public bool IsActive { get; set; } = true;
+    public bool IsActive { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

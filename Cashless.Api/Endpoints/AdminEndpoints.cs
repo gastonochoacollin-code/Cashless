@@ -79,10 +79,11 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
             var list = await db.OperatorAreas
                 .Include(x => x.Area)
-                .Where(x => x.OperatorId == id && x.IsActive)
+                .Where(x => x.OperatorId == id && x.IsActive && x.TenantId == tenantId)
                 .Select(x => new
                 {
                     x.Id,
@@ -100,11 +101,100 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
+
+            var operatorExists = await db.Operators.AnyAsync(o => o.Id == id && o.TenantId == tenantId);
+            if (!operatorExists) return Results.NotFound(new { message = "Operador no existe" });
+
+            var areaExists = await db.Areas.AnyAsync(a => a.Id == dto.AreaId && a.TenantId == tenantId);
+            if (!areaExists) return Results.BadRequest(new { message = "AreaId inv√°lido" });
 
             dto.OperatorId = id;
+            dto.TenantId = tenantId;
             db.OperatorAreas.Add(dto);
             await db.SaveChangesAsync();
             return Results.Ok(dto);
+        });
+
+        // ===================== FESTIVALS - PROTEGIDO =====================
+        app.MapGet("/api/festivals", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth) =>
+        {
+            var op = await auth.AuthenticateAsync(db, http.Request);
+            if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
+
+            var list = await db.Festivals
+                .Where(f => f.TenantId == tenantId)
+                .OrderByDescending(f => f.Id)
+                .Select(f => new
+                {
+                    f.Id,
+                    f.Name,
+                    f.StartDate,
+                    f.EndDate,
+                    f.IsActive
+                })
+                .ToListAsync();
+
+            return Results.Ok(list);
+        });
+
+        app.MapPost("/api/festivals", async Task<IResult> (FestivalCreateRequest dto, CashlessContext db, HttpContext http, IAuthService auth) =>
+        {
+            var op = await auth.AuthenticateAsync(db, http.Request);
+            if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
+
+            if (string.IsNullOrWhiteSpace(dto.Name))
+                return Results.BadRequest(new { message = "Nombre requerido" });
+
+            if (dto.EndDate < dto.StartDate)
+                return Results.BadRequest(new { message = "Rango de fechas inv√°lido" });
+
+            if (dto.IsActive)
+            {
+                var actives = await db.Festivals.Where(f => f.TenantId == tenantId && f.IsActive).ToListAsync();
+                foreach (var f in actives) f.IsActive = false;
+            }
+
+            var festival = new Festival
+            {
+                Name = dto.Name.Trim(),
+                StartDate = dto.StartDate,
+                EndDate = dto.EndDate,
+                IsActive = dto.IsActive,
+                TenantId = tenantId
+            };
+
+            db.Festivals.Add(festival);
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new
+            {
+                festival.Id,
+                festival.Name,
+                festival.StartDate,
+                festival.EndDate,
+                festival.IsActive
+            });
+        });
+
+        app.MapPost("/api/festivals/{id:int}/activate", async Task<IResult> (int id, CashlessContext db, HttpContext http, IAuthService auth) =>
+        {
+            var op = await auth.AuthenticateAsync(db, http.Request);
+            if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
+
+            var target = await db.Festivals.FirstOrDefaultAsync(f => f.Id == id && f.TenantId == tenantId);
+            if (target is null) return Results.NotFound(new { message = "Festival no existe" });
+
+            var actives = await db.Festivals.Where(f => f.TenantId == tenantId && f.IsActive && f.Id != id).ToListAsync();
+            foreach (var f in actives) f.IsActive = false;
+
+            target.IsActive = true;
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new { ok = true });
         });
 
         // ===================== AREAS (BARRAS) - PROTEGIDO (Type string + CustomType) =====================
@@ -112,8 +202,10 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
             var areas = await db.Areas
+                .Where(a => a.TenantId == tenantId)
                 .OrderBy(a => a.Name)
                 .Select(a => new
                 {
@@ -132,6 +224,7 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
             if (string.IsNullOrWhiteSpace(dto.Name))
                 return Results.BadRequest(new { message = "Name is required." });
@@ -144,7 +237,8 @@ public static class AdminEndpoints
                 Name = dto.Name.Trim(),
                 Type = parsedType,
                 IsActive = dto.IsActive,
-                CustomType = string.IsNullOrWhiteSpace(dto.CustomType) ? null : dto.CustomType.Trim()
+                CustomType = string.IsNullOrWhiteSpace(dto.CustomType) ? null : dto.CustomType.Trim(),
+                TenantId = tenantId
             };
 
             db.Areas.Add(area);
@@ -164,8 +258,9 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
-            var area = await db.Areas.FindAsync(id);
+            var area = await db.Areas.FirstOrDefaultAsync(a => a.Id == id && a.TenantId == tenantId);
             if (area is null) return Results.NotFound(new { message = "Area no existe" });
 
             if (string.IsNullOrWhiteSpace(dto.Name))
@@ -195,8 +290,9 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
-            var area = await db.Areas.FindAsync(id);
+            var area = await db.Areas.FirstOrDefaultAsync(a => a.Id == id && a.TenantId == tenantId);
             if (area is null) return Results.NotFound(new { message = "Area no existe" });
 
             area.IsActive = false;
@@ -209,8 +305,10 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
             var list = await db.Products
+                .Where(p => p.TenantId == tenantId)
                 .OrderByDescending(p => p.Id)
                 .Select(p => new
                 {
@@ -229,19 +327,21 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
             if (string.IsNullOrWhiteSpace(dto.Name))
                 return Results.BadRequest(new { message = "Nombre requerido" });
 
             if (dto.Price < 0)
-                return Results.BadRequest(new { message = "Precio inv·lido" });
+                return Results.BadRequest(new { message = "Precio inv√°lido" });
 
             var p = new Product
             {
                 Name = dto.Name.Trim(),
                 Price = dto.Price,
                 Category = string.IsNullOrWhiteSpace(dto.Category) ? null : dto.Category.Trim(),
-                IsActive = dto.IsActive
+                IsActive = dto.IsActive,
+                TenantId = tenantId
             };
 
             db.Products.Add(p);
@@ -262,15 +362,16 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
-            var p = await db.Products.FindAsync(id);
+            var p = await db.Products.FirstOrDefaultAsync(p => p.Id == id && p.TenantId == tenantId);
             if (p is null) return Results.NotFound(new { message = "Producto no existe" });
 
             if (string.IsNullOrWhiteSpace(dto.Name))
                 return Results.BadRequest(new { message = "Nombre requerido" });
 
             if (dto.Price < 0)
-                return Results.BadRequest(new { message = "Precio inv·lido" });
+                return Results.BadRequest(new { message = "Precio inv√°lido" });
 
             p.Name = dto.Name.Trim();
             p.Price = dto.Price;
@@ -294,8 +395,9 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
-            var p = await db.Products.FindAsync(id);
+            var p = await db.Products.FirstOrDefaultAsync(p => p.Id == id && p.TenantId == tenantId);
             if (p is null) return Results.NotFound(new { message = "Producto no existe" });
 
             p.IsActive = false;
@@ -308,13 +410,14 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
-            var area = await db.Areas.FindAsync(areaId);
+            var area = await db.Areas.FirstOrDefaultAsync(a => a.Id == areaId && a.TenantId == tenantId);
             if (area is null) return Results.NotFound(new { message = "Area no existe" });
 
             var list = await db.AreaProducts
                 .Include(ap => ap.Product)
-                .Where(ap => ap.AreaId == areaId)
+                .Where(ap => ap.AreaId == areaId && ap.TenantId == tenantId)
                 .OrderBy(ap => ap.Product.Name)
                 .Select(ap => new
                 {
@@ -338,25 +441,27 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
-            var area = await db.Areas.FindAsync(areaId);
+            var area = await db.Areas.FirstOrDefaultAsync(a => a.Id == areaId && a.TenantId == tenantId);
             if (area is null) return Results.NotFound(new { message = "Area no existe" });
 
-            var product = await db.Products.FindAsync(dto.ProductId);
+            var product = await db.Products.FirstOrDefaultAsync(p => p.Id == dto.ProductId && p.TenantId == tenantId);
             if (product is null) return Results.NotFound(new { message = "Producto no existe" });
 
-            var exists = await db.AreaProducts.AnyAsync(x => x.AreaId == areaId && x.ProductId == dto.ProductId);
-            if (exists) return Results.BadRequest(new { message = "Ese producto ya est· en el men˙ de esta barra." });
+            var exists = await db.AreaProducts.AnyAsync(x => x.AreaId == areaId && x.ProductId == dto.ProductId && x.TenantId == tenantId);
+            if (exists) return Results.BadRequest(new { message = "Ese producto ya est√° en el men√∫ de esta barra." });
 
             if (dto.PriceOverride is not null && dto.PriceOverride < 0)
-                return Results.BadRequest(new { message = "PriceOverride inv·lido" });
+                return Results.BadRequest(new { message = "PriceOverride inv√°lido" });
 
             var link = new AreaProduct
             {
                 AreaId = areaId,
                 ProductId = dto.ProductId,
                 PriceOverride = dto.PriceOverride,
-                IsActive = dto.IsActive
+                IsActive = dto.IsActive,
+                TenantId = tenantId
             };
 
             db.AreaProducts.Add(link);
@@ -380,15 +485,16 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
             var link = await db.AreaProducts
                 .Include(x => x.Product)
-                .FirstOrDefaultAsync(x => x.Id == areaProductId && x.AreaId == areaId);
+                .FirstOrDefaultAsync(x => x.Id == areaProductId && x.AreaId == areaId && x.TenantId == tenantId);
 
-            if (link is null) return Results.NotFound(new { message = "No existe ese producto en el men˙ de esta barra." });
+            if (link is null) return Results.NotFound(new { message = "No existe ese producto en el men√∫ de esta barra." });
 
             if (dto.PriceOverride is not null && dto.PriceOverride < 0)
-                return Results.BadRequest(new { message = "PriceOverride inv·lido" });
+                return Results.BadRequest(new { message = "PriceOverride inv√°lido" });
 
             link.PriceOverride = dto.PriceOverride;
             link.IsActive = dto.IsActive;
@@ -414,9 +520,10 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
-            var link = await db.AreaProducts.FirstOrDefaultAsync(x => x.Id == areaProductId && x.AreaId == areaId);
-            if (link is null) return Results.NotFound(new { message = "No existe ese vÌnculo." });
+            var link = await db.AreaProducts.FirstOrDefaultAsync(x => x.Id == areaProductId && x.AreaId == areaId && x.TenantId == tenantId);
+            if (link is null) return Results.NotFound(new { message = "No existe ese v√≠nculo." });
 
             db.AreaProducts.Remove(link);
             await db.SaveChangesAsync();
@@ -428,9 +535,11 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
             var list = await db.Operators
                 .Include(o => o.Area)
+                .Where(o => o.TenantId == tenantId)
                 .OrderBy(o => o.Id)
                 .Select(o => new
                 {
@@ -451,12 +560,13 @@ public static class AdminEndpoints
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
             if (!CanManageOperators(op)) return Forbidden("No tienes permisos para crear colaboradores.");
+            var tenantId = op.TenantId;
 
             if (string.IsNullOrWhiteSpace(dto.Name))
                 return Results.BadRequest(new { message = "Nombre requerido" });
 
             if (string.IsNullOrWhiteSpace(dto.Pin) || dto.Pin.Trim().Length < 4)
-                return Results.BadRequest(new { message = "PIN requerido (mÌnimo 4 dÌgitos)" });
+                return Results.BadRequest(new { message = "PIN requerido (m√≠nimo 4 d√≠gitos)" });
 
             if (!Enum.TryParse<OperatorRole>(dto.Role ?? "JefeDeBarra", true, out var parsedRole))
                 parsedRole = OperatorRole.JefeDeBarra;
@@ -466,12 +576,12 @@ public static class AdminEndpoints
 
             int areaId = dto.AreaId ?? 0;
             if (areaId <= 0)
-                areaId = await db.Areas.OrderBy(a => a.Id).Select(a => a.Id).FirstOrDefaultAsync();
+                areaId = await db.Areas.Where(a => a.TenantId == tenantId).OrderBy(a => a.Id).Select(a => a.Id).FirstOrDefaultAsync();
 
             if (areaId <= 0) return Results.BadRequest(new { message = "No hay Areas creadas para asignar." });
 
-            var areaExists = await db.Areas.AnyAsync(a => a.Id == areaId);
-            if (!areaExists) return Results.BadRequest(new { message = "AreaId inv·lido" });
+            var areaExists = await db.Areas.AnyAsync(a => a.Id == areaId && a.TenantId == tenantId);
+            if (!areaExists) return Results.BadRequest(new { message = "AreaId inv√°lido" });
 
             var entity = new Operator
             {
@@ -479,7 +589,8 @@ public static class AdminEndpoints
                 Role = parsedRole,
                 AreaId = areaId,
                 PinHash = auth.HashPin(dto.Pin.Trim()),
-                IsActive = dto.IsActive
+                IsActive = dto.IsActive,
+                TenantId = tenantId
             };
 
             db.Operators.Add(entity);
@@ -500,8 +611,9 @@ public static class AdminEndpoints
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
             if (!CanManageOperators(op)) return Forbidden("No tienes permisos para editar colaboradores.");
+            var tenantId = op.TenantId;
 
-            var target = await db.Operators.FindAsync(id);
+            var target = await db.Operators.FirstOrDefaultAsync(o => o.Id == id && o.TenantId == tenantId);
             if (target is null) return Results.NotFound(new { message = "Operador no existe" });
 
             if (string.IsNullOrWhiteSpace(dto.Name))
@@ -522,8 +634,8 @@ public static class AdminEndpoints
 
             if (dto.AreaId.HasValue && dto.AreaId.Value > 0)
             {
-                var areaExists = await db.Areas.AnyAsync(a => a.Id == dto.AreaId.Value);
-                if (!areaExists) return Results.BadRequest(new { message = "AreaId inv·lido" });
+                var areaExists = await db.Areas.AnyAsync(a => a.Id == dto.AreaId.Value && a.TenantId == tenantId);
+                if (!areaExists) return Results.BadRequest(new { message = "AreaId inv√°lido" });
                 target.AreaId = dto.AreaId.Value;
             }
 
@@ -547,8 +659,9 @@ public static class AdminEndpoints
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
             if (!CanManageOperators(op)) return Forbidden("No tienes permisos para desactivar colaboradores.");
+            var tenantId = op.TenantId;
 
-            var target = await db.Operators.FindAsync(id);
+            var target = await db.Operators.FirstOrDefaultAsync(o => o.Id == id && o.TenantId == tenantId);
             if (target is null) return Results.NotFound(new { message = "Operador no existe" });
 
             if (target.Id == op.Id)
@@ -566,12 +679,13 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
             var clean = (uid ?? "").Trim().ToUpperInvariant();
 
             var card = await db.Cards
                 .Include(c => c.User)
-                .FirstOrDefaultAsync(c => c.Uid == clean);
+                .FirstOrDefaultAsync(c => c.Uid == clean && c.TenantId == tenantId && c.User.TenantId == tenantId);
 
             if (card is null) return Results.NotFound(new { message = "Card no existe (no asignada)" });
 
@@ -590,8 +704,10 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
             var users = await db.Users
+                .Where(u => u.TenantId == tenantId)
                 .OrderByDescending(u => u.Id)
                 .Select(u => new
                 {
@@ -612,6 +728,7 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
             if (string.IsNullOrWhiteSpace(req.Name))
                 return Results.BadRequest(new { message = "Nombre requerido" });
@@ -622,7 +739,8 @@ public static class AdminEndpoints
                 Email = string.IsNullOrWhiteSpace(req.Email) ? null : req.Email.Trim(),
                 Phone = string.IsNullOrWhiteSpace(req.Phone) ? null : req.Phone.Trim(),
                 Balance = 0,
-                TotalSpent = 0
+                TotalSpent = 0,
+                TenantId = tenantId
             };
 
             db.Users.Add(user);
@@ -644,19 +762,20 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
-            if (req.UserId <= 0) return Results.BadRequest(new { message = "UserId inv·lido" });
+            if (req.UserId <= 0) return Results.BadRequest(new { message = "UserId inv√°lido" });
             if (string.IsNullOrWhiteSpace(req.Uid)) return Results.BadRequest(new { message = "UID requerido" });
 
             var uid = req.Uid.Trim().ToUpperInvariant();
 
-            var user = await db.Users.FindAsync(req.UserId);
+            var user = await db.Users.FirstOrDefaultAsync(u => u.Id == req.UserId && u.TenantId == tenantId);
             if (user is null) return Results.NotFound(new { message = "Usuario no existe" });
 
             var cardExists = await db.Cards.AnyAsync(c => c.Uid == uid);
             if (cardExists) return Results.BadRequest(new { message = "Pulsera ya asignada" });
 
-            db.Cards.Add(new Card { Uid = uid, UserId = user.Id });
+            db.Cards.Add(new Card { Uid = uid, UserId = user.Id, TenantId = tenantId });
             await db.SaveChangesAsync();
 
             return Results.Ok(new { ok = true });
@@ -666,14 +785,15 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
             var clean = (uid ?? "").Trim().ToUpperInvariant();
 
-            var card = await db.Cards.Include(c => c.User).FirstOrDefaultAsync(c => c.Uid == clean);
+            var card = await db.Cards.Include(c => c.User).FirstOrDefaultAsync(c => c.Uid == clean && c.TenantId == tenantId && c.User.TenantId == tenantId);
             if (card is null) return Results.NotFound(new { message = "Pulsera no asignada" });
 
             var tx = await db.Transactions
-                .Where(t => t.UserId == card.User.Id)
+                .Where(t => t.UserId == card.User.Id && t.TenantId == tenantId)
                 .OrderByDescending(t => t.Id)
                 .Take(50)
                 .Select(t => new
@@ -698,8 +818,9 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
-            var user = await db.Users.FindAsync(id);
+            var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id && u.TenantId == tenantId);
             if (user is null) return Results.NotFound(new { message = "Usuario no existe" });
 
             user.Email = string.IsNullOrWhiteSpace(req.Email) ? null : req.Email.Trim();
@@ -723,23 +844,24 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
-            if (req.UserId <= 0) return Results.BadRequest(new { message = "UserId inv·lido" });
+            if (req.UserId <= 0) return Results.BadRequest(new { message = "UserId inv√°lido" });
             if (string.IsNullOrWhiteSpace(req.Uid)) return Results.BadRequest(new { message = "UID requerido" });
 
             var uid = req.Uid.Trim().ToUpperInvariant();
 
-            var user = await db.Users.FindAsync(req.UserId);
+            var user = await db.Users.FirstOrDefaultAsync(u => u.Id == req.UserId && u.TenantId == tenantId);
             if (user is null) return Results.NotFound(new { message = "Usuario no existe" });
 
             var uidExists = await db.Cards.AnyAsync(c => c.Uid == uid);
             if (uidExists) return Results.BadRequest(new { message = "Pulsera ya asignada" });
 
-            var card = await db.Cards.FirstOrDefaultAsync(c => c.UserId == user.Id);
+            var card = await db.Cards.FirstOrDefaultAsync(c => c.UserId == user.Id && c.TenantId == tenantId);
             string? oldUid = null;
 
             if (card is null)
-                db.Cards.Add(new Card { Uid = uid, UserId = user.Id });
+                db.Cards.Add(new Card { Uid = uid, UserId = user.Id, TenantId = tenantId });
             else
             {
                 oldUid = card.Uid;
@@ -751,7 +873,7 @@ public static class AdminEndpoints
         });
 
         // ===================== PERMISSIONS (roles -> permisos) - PROTEGIDO =====================
-        // Nota: por ahora es RBAC simple (por rol). M·s adelante podemos meter overrides por operador en BD.
+        // Nota: por ahora es RBAC simple (por rol). M√°s adelante podemos meter overrides por operador en BD.
         app.MapGet("/api/permissions", async (CashlessContext db, HttpContext http, IAuthService auth) =>
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
@@ -771,11 +893,11 @@ public static class AdminEndpoints
                 new { key="topup", title="Recargar saldo", desc="Hacer recargas (top-up) a pulseras." },
                 new { key="charge", title="Cobrar", desc="Aplicar cargos (charge) a pulseras." },
                 new { key="users_manage", title="Usuarios", desc="Crear/editar usuarios y asignar pulseras." },
-                new { key="areas_manage", title="Barras / ¡reas", desc="Crear/editar barras, stands, tipos y customType." },
-                new { key="products_manage", title="Productos", desc="Crear/editar cat·logo de productos." },
-                new { key="menus_manage", title="Men˙s por barra", desc="Asignar productos por barra (AreaProduct)." },
+                new { key="areas_manage", title="Barras / √Åreas", desc="Crear/editar barras, stands, tipos y customType." },
+                new { key="products_manage", title="Productos", desc="Crear/editar cat√°logo de productos." },
+                new { key="menus_manage", title="Men√∫s por barra", desc="Asignar productos por barra (AreaProduct)." },
                 new { key="operators_manage", title="Colaboradores", desc="Crear/editar/desactivar operadores." },
-                new { key="reports_view", title="Reportes", desc="Ver estadÌsticas de ventas/consumo." },
+                new { key="reports_view", title="Reportes", desc="Ver estad√≠sticas de ventas/consumo." },
                 new { key="permissions_view", title="Ver permisos", desc="Ver matriz de permisos por rol." },
                 new { key="permissions_manage", title="Administrar permisos", desc="Cambiar permisos (solo SuperAdmin)." },
             };

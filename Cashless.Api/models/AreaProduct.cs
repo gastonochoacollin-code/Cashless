@@ -4,6 +4,9 @@ public class AreaProduct
 {
     public int Id { get; set; }
 
+    public int TenantId { get; set; }
+    public Tenant Tenant { get; set; } = default!;
+
     public int AreaId { get; set; }
     public Area Area { get; set; } = default!;
 

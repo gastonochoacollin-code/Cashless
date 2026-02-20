@@ -1,4 +1,4 @@
-namespace Cashless.Api.Endpoints;
+﻿namespace Cashless.Api.Endpoints;
 
 using Cashless.Api.Data;
 using Cashless.Api.Dtos.Barra;
@@ -15,14 +15,14 @@ public static class PosEndpoints
         {
             var uid = (req.uid ?? "").Trim().ToUpperInvariant();
             uidState.SetLastUid(uid);
-            Console.WriteLine($"UID le�do: {uid}");
+            Console.WriteLine($"UID leÃ­do: {uid}");
             return Results.Ok(new { ok = true });
         });
 
         app.MapGet("/last-uid", (IUidState uidState) =>
         {
             // Nunca 404 para no spamear consola del dashboard.
-            // Si no hay UID, devolvemos uid vac�o.
+            // Si no hay UID, devolvemos uid vacÃ­o.
             if (!uidState.TryTakeLastUid(out var uid))
                 return Results.Ok(new { uid = "" });
 
@@ -33,12 +33,13 @@ public static class PosEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
             var clean = (uid ?? "").Trim().ToUpperInvariant();
 
             var card = await db.Cards
                 .Include(c => c.User)
-                .FirstOrDefaultAsync(c => c.Uid == clean);
+                .FirstOrDefaultAsync(c => c.Uid == clean && c.TenantId == tenantId && c.User.TenantId == tenantId);
 
             if (card is null) return Results.NotFound(new { message = "Pulsera no asignada" });
 
@@ -53,12 +54,13 @@ public static class PosEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
             var uid = (req.Uid ?? "").Trim().ToUpperInvariant();
             if (string.IsNullOrWhiteSpace(uid)) return Results.BadRequest(new { message = "UID requerido" });
-            if (req.Amount <= 0) return Results.BadRequest(new { message = "Monto inv�lido" });
+            if (req.Amount <= 0) return Results.BadRequest(new { message = "Monto invÃ¡lido" });
 
-            var card = await db.Cards.Include(c => c.User).FirstOrDefaultAsync(c => c.Uid == uid);
+            var card = await db.Cards.Include(c => c.User).FirstOrDefaultAsync(c => c.Uid == uid && c.TenantId == tenantId && c.User.TenantId == tenantId);
             if (card is null) return Results.NotFound(new { message = "Pulsera no asignada" });
 
             card.User.Balance += req.Amount;
@@ -69,7 +71,10 @@ public static class PosEndpoints
                 CardUid = card.Uid,
                 Amount = req.Amount,
                 Type = TransactionType.TopUp,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow,
+                TenantId = tenantId,
+                OperatorId = op.Id,
+                AreaId = op.AreaId
             });
 
             await db.SaveChangesAsync();
@@ -80,16 +85,17 @@ public static class PosEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
             var uid = (req.Uid ?? "").Trim().ToUpperInvariant();
             if (string.IsNullOrWhiteSpace(uid)) return Results.BadRequest(new { message = "UID requerido" });
-            if (req.Amount <= 0) return Results.BadRequest(new { message = "Monto inv�lido" });
+            if (req.Amount <= 0) return Results.BadRequest(new { message = "Monto invÃ¡lido" });
 
             // ?? solo 1 cobro por lectura
             if (!uidState.ConsumePendingIfMatches(uid))
-                return Results.BadRequest(new { message = "Esta pulsera ya fue usada o no fue le�da recientemente" });
+                return Results.BadRequest(new { message = "Esta pulsera ya fue usada o no fue leÃ­da recientemente" });
 
-            var card = await db.Cards.Include(c => c.User).FirstOrDefaultAsync(c => c.Uid == uid);
+            var card = await db.Cards.Include(c => c.User).FirstOrDefaultAsync(c => c.Uid == uid && c.TenantId == tenantId && c.User.TenantId == tenantId);
             if (card is null) return Results.NotFound(new { message = "Pulsera no asignada" });
 
             if (card.User.Balance < req.Amount)
@@ -104,7 +110,10 @@ public static class PosEndpoints
                 CardUid = uid,
                 Amount = req.Amount,
                 Type = TransactionType.Charge,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow,
+                TenantId = tenantId,
+                OperatorId = op.Id,
+                AreaId = op.AreaId
             });
 
             await db.SaveChangesAsync();
@@ -112,7 +121,7 @@ public static class PosEndpoints
         });
 
         // =======================
-        // PROTEGIDO: Charge V2 (propina + donaci�n + items) + datos para reportes
+        // PROTEGIDO: Charge V2 (propina + donaciÃ³n + items) + datos para reportes
         // - No rompe esquema: guarda "items/tip/donation" dentro de Transaction.Note (JSON)
         // - Crea 1 tx de SUBTOTAL + 1 tx de TIP (si aplica) + 1 tx de DONATION (si aplica)
         // =======================
@@ -121,27 +130,28 @@ public static class PosEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            var tenantId = op.TenantId;
 
             var uid = (req.Uid ?? "").Trim().ToUpperInvariant();
             if (string.IsNullOrWhiteSpace(uid)) return Results.BadRequest(new { message = "UID requerido" });
-            if (req.AreaId <= 0) return Results.BadRequest(new { message = "AreaId inv�lido" });
-            if (req.OperatorId <= 0) return Results.BadRequest(new { message = "OperatorId inv�lido" });
+            if (req.AreaId <= 0) return Results.BadRequest(new { message = "AreaId invÃ¡lido" });
+            if (req.OperatorId <= 0) return Results.BadRequest(new { message = "OperatorId invÃ¡lido" });
             if (req.Items is null || req.Items.Count == 0) return Results.BadRequest(new { message = "Items requerido" });
 
-            if (req.TipAmount < 0) return Results.BadRequest(new { message = "TipAmount inv�lido" });
-            if (req.DonationPercent < 0 || req.DonationPercent > 100) return Results.BadRequest(new { message = "DonationPercent inv�lido (0-100)" });
+            if (req.TipAmount < 0) return Results.BadRequest(new { message = "TipAmount invÃ¡lido" });
+            if (req.DonationPercent < 0 || req.DonationPercent > 100) return Results.BadRequest(new { message = "DonationPercent invÃ¡lido (0-100)" });
 
             // ?? solo 1 cobro por lectura
             if (!uidState.ConsumePendingIfMatches(uid))
-                return Results.BadRequest(new { message = "Esta pulsera ya fue usada o no fue le�da recientemente" });
+                return Results.BadRequest(new { message = "Esta pulsera ya fue usada o no fue leÃ­da recientemente" });
 
-            var card = await db.Cards.Include(c => c.User).FirstOrDefaultAsync(c => c.Uid == uid);
+            var card = await db.Cards.Include(c => c.User).FirstOrDefaultAsync(c => c.Uid == uid && c.TenantId == tenantId && c.User.TenantId == tenantId);
             if (card is null) return Results.NotFound(new { message = "Pulsera no asignada" });
 
-            // Trae men� del �rea para precio efectivo (override o base)
+            // Trae menÃº del Ã¡rea para precio efectivo (override o base)
             var menu = await db.AreaProducts
                 .Include(ap => ap.Product)
-                .Where(ap => ap.AreaId == req.AreaId && ap.IsActive && ap.Product.IsActive)
+                .Where(ap => ap.AreaId == req.AreaId && ap.IsActive && ap.Product.IsActive && ap.TenantId == tenantId && ap.Product.TenantId == tenantId)
                 .ToListAsync();
 
             var priceByProductId = menu.ToDictionary(
@@ -149,16 +159,16 @@ public static class PosEndpoints
                 ap => (ap.PriceOverride ?? ap.Product.Price)
             );
 
-            // Calcula subtotal y arma items para auditor�a + reportes
+            // Calcula subtotal y arma items para auditorÃ­a + reportes
             decimal subtotal = 0m;
             var noteItems = new List<object>();
 
             foreach (var it in req.Items)
             {
-                if (it.Qty <= 0) return Results.BadRequest(new { message = "Qty inv�lido" });
+                if (it.Qty <= 0) return Results.BadRequest(new { message = "Qty invÃ¡lido" });
 
                 if (!priceByProductId.TryGetValue(it.ProductId, out var unit))
-                    return Results.BadRequest(new { message = $"Producto {it.ProductId} no est� activo en el men� del �rea {req.AreaId}" });
+                    return Results.BadRequest(new { message = $"Producto {it.ProductId} no estÃ¡ activo en el menÃº del Ã¡rea {req.AreaId}" });
 
                 var line = unit * it.Qty;
                 subtotal += line;
@@ -179,7 +189,7 @@ public static class PosEndpoints
             var tipAmount = Math.Round(req.TipAmount, 2);
 
             var grandTotal = subtotal + tipAmount + donationAmount;
-            if (grandTotal <= 0) return Results.BadRequest(new { message = "Monto inv�lido" });
+            if (grandTotal <= 0) return Results.BadRequest(new { message = "Monto invÃ¡lido" });
 
             if (card.User.Balance < grandTotal)
                 return Results.BadRequest(new { message = "Saldo insuficiente" });
@@ -202,9 +212,13 @@ public static class PosEndpoints
                 UserId = card.User.Id,
                 CardUid = uid,
                 Amount = subtotal,
+                TipAmount = 0m,
                 Type = TransactionType.Charge,
                 Note = System.Text.Json.JsonSerializer.Serialize(saleMeta),
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow,
+                TenantId = tenantId,
+                AreaId = req.AreaId,
+                OperatorId = req.OperatorId
             });
 
             // 2) TIP
@@ -216,9 +230,13 @@ public static class PosEndpoints
                     UserId = card.User.Id,
                     CardUid = uid,
                     Amount = tipAmount,
+                    TipAmount = tipAmount,
                     Type = TransactionType.Charge,
                     Note = System.Text.Json.JsonSerializer.Serialize(tipMeta),
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow,
+                    TenantId = tenantId,
+                    AreaId = req.AreaId,
+                    OperatorId = req.OperatorId
                 });
             }
 
@@ -239,9 +257,14 @@ public static class PosEndpoints
                     UserId = card.User.Id,
                     CardUid = uid,
                     Amount = donationAmount,
+                    TipAmount = 0m,
                     Type = TransactionType.Charge,
                     Note = System.Text.Json.JsonSerializer.Serialize(donMeta),
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow,
+                    TenantId = tenantId,
+                    AreaId = req.AreaId,
+                    OperatorId = req.OperatorId,
+                    DonationProjectId = req.DonationProjectId
                 });
             }
 
@@ -262,3 +285,16 @@ public static class PosEndpoints
         return app;
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+

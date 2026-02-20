@@ -31,6 +31,7 @@ async function apiFetch(path, options = {}){
     "Content-Type": "application/json",
     "X-Operator-Id": String(s.operatorId),
     "X-Operator-Token": String(s.token),
+    ...(s.tenantId ? { "X-Tenant-Id": String(s.tenantId) } : {}),
     ...(options.headers || {})
   };
   return fetch(`${API}${path}`, { ...options, headers });

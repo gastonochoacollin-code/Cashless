@@ -12,6 +12,7 @@ public interface IAuthService
     string HashPin(string pin);
     bool ValidatePin(string pin, string pinHash);
     string MakeToken(int operatorId, string pinHash);
+    int? ReadTenantId(HttpRequest req);
     string? ReadToken(HttpRequest req);
     int? ReadOperatorId(HttpRequest req);
     Task<Operator?> AuthenticateAsync(CashlessContext db, HttpRequest req);

@@ -1,0 +1,236 @@
+====================================================
+MANUAL DE INSTALACIÓN
+Sistema de Lectores – Cashless
+Versión 1.0
+Uso interno – Equipo técnico
+====================================================
+
+
+1) REQUISITOS DEL SISTEMA
+
+HARDWARE MÍNIMO
+- PC o Laptop con Windows 10 u 11 (64 bits)
+- 8GB RAM recomendado
+- 1 Puerto USB disponible
+- Conexión a red local estable
+
+LECTORES COMPATIBLES
+- ACR122U
+- Lectores NFC USB tipo HID compatibles
+
+IMPORTANTE:
+Todos los lectores deben enviar el UID en formato HEX limpio,
+sin espacios ni caracteres adicionales.
+
+
+----------------------------------------------------
+2) INSTALAR .NET 8
+----------------------------------------------------
+
+Paso 1:
+Descargar .NET 8 Runtime desde:
+https://dotnet.microsoft.com/download/dotnet/8.0
+
+Instalar:
+- .NET 8 Runtime
+- ASP.NET Runtime (si aplica)
+
+Paso 2:
+Verificar instalación.
+
+Abrir CMD y ejecutar:
+
+dotnet --version
+
+Debe mostrar algo como:
+8.0.xxx
+
+Si no aparece, reinstalar.
+
+
+----------------------------------------------------
+3) INSTALAR DRIVER DEL LECTOR
+----------------------------------------------------
+
+1. Conectar lector USB.
+2. Abrir Administrador de dispositivos.
+3. Verificar que aparezca sin advertencias.
+4. Si aparece con error, instalar driver oficial del fabricante.
+
+
+----------------------------------------------------
+4) COPIAR APLICACIÓN DEL LECTOR
+----------------------------------------------------
+
+Copiar carpeta:
+
+Cashless.NfcReader
+
+Debe contener:
+- Cashless.NfcReader.exe
+- appsettings.json
+
+Ubicar en:
+
+C:\Cashless\Reader\
+
+
+----------------------------------------------------
+5) CONFIGURAR appsettings.json
+----------------------------------------------------
+
+Abrir el archivo appsettings.json y editar:
+
+{
+  "ServerUrl": "http://192.168.1.214:5001",
+  "TerminalName": "Barra01"
+}
+
+Cambiar:
+
+ServerUrl = IP del servidor Cashless
+TerminalName = Nombre único por computadora
+
+Ejemplos válidos:
+Barra01
+Barra02
+AccesoVIP
+Taquilla
+
+Cada computadora debe tener un nombre diferente.
+
+
+----------------------------------------------------
+6) PROBAR CONEXIÓN AL SERVIDOR
+----------------------------------------------------
+
+Antes de ejecutar el lector, probar en navegador:
+
+http://IP_DEL_SERVIDOR:5001/swagger
+
+Si carga → servidor activo.
+Si no carga → revisar:
+- Firewall
+- IP correcta
+- Que el servidor esté corriendo
+
+
+----------------------------------------------------
+7) EJECUTAR LECTOR
+----------------------------------------------------
+
+Desde la carpeta del lector ejecutar:
+
+Cashless.NfcReader.exe
+
+O desde CMD:
+
+dotnet Cashless.NfcReader.dll
+
+Debe mostrar:
+
+Reader iniciado
+Esperando tarjeta...
+
+
+----------------------------------------------------
+8) PRUEBA DE LECTURA
+----------------------------------------------------
+
+Pasar tarjeta NFC.
+
+Debe mostrar algo como:
+
+UID: 7B33E23D
+Enviado al servidor
+
+Verificar que la lectura llegue correctamente al servidor.
+
+
+----------------------------------------------------
+9) CONFIGURAR INICIO AUTOMÁTICO (RECOMENDADO)
+----------------------------------------------------
+
+1. Presionar Win + R
+2. Escribir:
+
+shell:startup
+
+3. Crear acceso directo de:
+
+Cashless.NfcReader.exe
+
+Así el lector iniciará automáticamente al prender la PC.
+
+
+----------------------------------------------------
+10) FORMATO ESTÁNDAR DE LECTURA
+----------------------------------------------------
+
+El lector debe enviar:
+
+- UID en HEX
+- Sin espacios
+- Sin salto de línea extra
+- Sin prefijos
+
+Formato correcto:
+
+7B33E23D
+
+Si envía distinto:
+- Configurar firmware
+- Ajustar configuración HID
+- Normalizar desde el código
+
+
+----------------------------------------------------
+11) PROBLEMAS COMUNES
+----------------------------------------------------
+
+ERROR: "You must install .NET"
+Solución:
+Instalar .NET 8 Runtime.
+
+ERROR: El lector lee diferente en otra PC
+Revisar:
+- Configuración de teclado (usar Inglés US)
+- Firmware del lector
+- Configuración HID
+
+ERROR: No conecta al servidor
+Revisar:
+- Firewall Windows
+- Puerto 5001 abierto
+- Servidor corriendo con:
+
+dotnet run --urls http://0.0.0.0:5001
+
+
+----------------------------------------------------
+12) CHECKLIST FINAL
+----------------------------------------------------
+
+Antes de entregar terminal:
+
+[ ] .NET instalado
+[ ] Lector reconocido
+[ ] IP configurada
+[ ] TerminalName único
+[ ] Prueba de lectura exitosa
+[ ] Comunicación correcta con servidor
+[ ] Inicio automático configurado
+
+
+----------------------------------------------------
+RECOMENDACIÓN OPERATIVA PARA EVENTOS
+----------------------------------------------------
+
+- Instalar 1 día antes del evento
+- Probar en red real
+- Llevar 1 lector de respaldo
+- Tener 1 laptop de emergencia configurada
+
+====================================================
+FIN DEL DOCUMENTO
+====================================================

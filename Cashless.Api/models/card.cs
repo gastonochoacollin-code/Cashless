@@ -4,6 +4,9 @@ public class Card
 {
     public int Id { get; set; }
 
+    public int TenantId { get; set; }
+    public Tenant Tenant { get; set; } = null!;
+
     // UID NFC (único)
     public string Uid { get; set; } = string.Empty;
 
@@ -15,3 +18,4 @@ public class Card
     public int UserId { get; set; }
     public User User { get; set; } = null!;
 }
+

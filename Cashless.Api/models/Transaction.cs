@@ -10,6 +10,9 @@ public class Transaction
 {
     public int Id { get; set; }
 
+    public int TenantId { get; set; }
+    public Tenant Tenant { get; set; } = null!;
+
     public int UserId { get; set; }
     public User User { get; set; } = null!;
 

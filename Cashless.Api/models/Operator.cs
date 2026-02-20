@@ -4,6 +4,9 @@ public class Operator
 {
     public int Id { get; set; }
 
+    public int TenantId { get; set; }
+    public Tenant Tenant { get; set; } = null!;
+
     public string Name { get; set; } = string.Empty;
 
     public OperatorRole Role { get; set; }

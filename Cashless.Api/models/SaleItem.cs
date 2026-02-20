@@ -4,6 +4,9 @@ public class SaleItem
 {
     public int Id { get; set; }
 
+    public int TenantId { get; set; }
+    public Tenant Tenant { get; set; } = null!;
+
     public int SaleId { get; set; }
     public Sale Sale { get; set; } = null!;
 
