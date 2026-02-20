@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Cashless · Cash Less</title>
+  <style>
+    :root{
+      --bg1:#07070b;
+      --bg2:#0f1020;
+      --card:#141427cc;
+      --stroke:#2a2a44;
+      --text:#ffffff;
+      --muted:#a8a8c7;
+      --accent:#2f7cff;
+      --accent2:#7b5cff;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;
+      color:var(--text);
+      background:
+        radial-gradient(1100px 700px at 15% 15%, rgba(47,124,255,.22), transparent 60%),
+        radial-gradient(900px 600px at 80% 20%, rgba(123,92,255,.18), transparent 55%),
+        linear-gradient(180deg, var(--bg1), var(--bg2));
+      min-height:100vh;
+    }
+    .wrap{max-width:1100px; margin:0 auto; padding:28px 16px 40px}
+    .top{display:flex; align-items:center; justify-content:space-between; gap:12px}
+    .brand{display:flex; align-items:center; gap:10px}
+    .logo{
+      width:38px; height:38px; border-radius:12px;
+      background:linear-gradient(135deg,var(--accent),var(--accent2));
+      display:grid; place-items:center; font-weight:900;
+      box-shadow:0 10px 30px rgba(47,124,255,.20);
+      overflow:hidden;
+    }
+    .logo img{width:100%; height:100%; object-fit:contain}
+    .brand h1{font-size:18px; margin:0}
+    .brand p{margin:0; font-size:12px; color:var(--muted)}
+    .btn{
+      border:1px solid var(--stroke);
+      background:#121226aa;
+      color:var(--text);
+      padding:12px 14px;
+      border-radius:12px;
+      font-weight:800;
+      cursor:pointer;
+      transition:.15s transform, .15s opacity;
+    }
+    .btn:hover{transform:translateY(-1px)}
+    .btn.primary{
+      background:linear-gradient(135deg,var(--accent),var(--accent2));
+      border:0;
+    }
+
+    .hero{padding:28px 0 18px}
+    .hero h2{font-size:40px; line-height:1.05; margin:0 0 12px}
+    .hero p{max-width:720px; margin:0; color:var(--muted); font-size:16px}
+
+    .grid{display:grid; grid-template-columns:repeat(12,1fr); gap:12px; margin-top:18px}
+    .card{
+      grid-column:span 6;
+      background:var(--card);
+      border:1px solid var(--stroke);
+      border-radius:18px;
+      padding:16px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 20px 60px rgba(0,0,0,.35);
+    }
+    .card h3{margin:0 0 8px; font-size:16px}
+    .card p{margin:0 0 14px; color:var(--muted); font-size:14px}
+    .card .row{display:flex; gap:10px; flex-wrap:wrap}
+    .pill{
+      display:inline-flex; align-items:center; gap:8px;
+      padding:8px 10px; border-radius:999px;
+      border:1px solid var(--stroke); color:var(--muted); font-weight:700; font-size:12px;
+      background:#0f0f1dcc;
+    }
+    .status{
+      margin-top:16px; padding:12px; border-radius:14px;
+      border:1px dashed var(--stroke); color:var(--muted);
+      background:#0d0d18aa;
+      font-weight:700;
+    }
+    .footer{margin-top:22px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px; color:var(--muted); font-size:12px}
+    a{color:inherit; text-decoration:none}
+    @media (max-width:900px){
+      .card{grid-column:span 12}
+      .hero h2{font-size:32px}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div class="brand">
+        <!-- Luego reemplazamos por tu logo real -->
+        <div class="logo" id="logoBox">
+          <span>CL</span>
+          <!-- <img src="/assets/logo.svg" alt="Cash Less" /> -->
+        </div>
+        <div>
+          <h1>Cashless (MVP)</h1>
+          <p>Operación rápida de festival · Cash Less</p>
+        </div>
+      </div>
+
+      <div class="row">
+        <button class="btn" id="btnLogin">Iniciar sesión</button>
+        <button class="btn primary" id="btnOpenApp">Entrar</button>
+      </div>
+    </div>
+
+    <div class="hero">
+      <h2>Cobro sin fricción.<br/>Operación por barras.</h2>
+      <p>Una sola pantalla para el staff, control por roles y reportes por barra.
+         Esta es la portada nueva (pública) para que el root no intente autenticar.</p>
+      <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap">
+        <span class="pill">⚡ rápido</span>
+        <span class="pill">🔐 por roles</span>
+        <span class="pill">🍺 multi-barra</span>
+        <span class="pill">📊 trazabilidad</span>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h3>Barra</h3>
+        <p>Venta con menú, subtotal + propina + total, cobro a pulsera.</p>
+        <div class="row">
+          <button class="btn primary" data-go="/barra.html">Abrir Barra</button>
+          <button class="btn" data-go="/admin-barras.html">Admin de Barras</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Recargas y usuarios</h3>
+        <p>Asignación de UID, consulta de saldo y recargas.</p>
+        <div class="row">
+          <button class="btn primary" data-go="/recargas.html">Ir a Recargas</button>
+          <button class="btn" data-go="/usuarios.html">Usuarios</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="status" id="statusBox">Estado: verificando sesión…</div>
+
+    <div class="footer">
+      <div>© <span id="y"></span> Cash Less · MVP</div>
+      <div class="muted">IP local: <span id="host"></span></div>
+    </div>
+  </div>
+
+  <script>
+    // Helpers mínimos sin common.js
+    const $ = (id)=>document.getElementById(id);
+    $("y").textContent = new Date().getFullYear();
+    $("host").textContent = location.host;
+
+    // Navegación
+    document.querySelectorAll("[data-go]").forEach(b=>{
+      b.addEventListener("click", ()=> location.href = b.getAttribute("data-go"));
+    });
+
+    $("btnLogin").addEventListener("click", ()=> location.href="/login.html");
+    $("btnOpenApp").addEventListener("click", ()=> location.href="/app.html");
+
+    // Verificación suave de sesión (sin romper si no existe endpoint)
+    (async function(){
+      try{
+        // Si ya tienes un endpoint tipo /me o /session, cambia aquí.
+        const r = await fetch("/me", { headers: { "Accept":"application/json" } });
+        if(r.ok){
+          const me = await r.json();
+          $("statusBox").textContent = `Sesión activa: ${me.name ?? "operador"} · Rol: ${me.role ?? "—"}`;
+          $("statusBox").style.color = "#7dff9a";
+          $("statusBox").style.borderStyle = "solid";
+        } else {
+          $("statusBox").textContent = "Sesión no iniciada. Entra con tu PIN para acceder a módulos.";
+        }
+      } catch {
+        $("statusBox").textContent = "Sesión no iniciada. (No se pudo validar automáticamente.)";
+      }
+    })();
+  </script>
+</body>
+</html>

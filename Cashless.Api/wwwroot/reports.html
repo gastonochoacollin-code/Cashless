@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Reportes · Cashless</title>
+  <style>
+    :root{
+      --bg:#0b0b0f; --card:#151520; --muted:#9aa0a6; --txt:#fff;
+      --blue:#2f7cff; --alt:#212133; --line:#232338; --ok:#35ff7a; --bad:#ff5a5a;
+      --field:#0f0f18;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; font-family:system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial;
+      background: radial-gradient(1200px 500px at 10% 0%, rgba(47,124,255,.18), transparent 60%),
+                  radial-gradient(900px 400px at 95% 10%, rgba(53,255,122,.10), transparent 55%),
+                  var(--bg);
+      color:var(--txt);
+    }
+    .wrap{max-width:1100px; margin:0 auto; padding:18px;}
+    .topbar{
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+      padding:14px 16px; border:1px solid var(--line); border-radius:14px; background:rgba(21,21,32,.75);
+      backdrop-filter: blur(6px);
+    }
+    .brand{display:flex; align-items:center; gap:10px}
+    .logo{
+      width:34px; height:34px; border-radius:10px;
+      background: linear-gradient(135deg, rgba(47,124,255,.95), rgba(53,255,122,.65));
+      box-shadow: 0 10px 35px rgba(47,124,255,.25);
+    }
+    .title{display:flex; flex-direction:column; line-height:1.05}
+    .title b{font-size:15px}
+    .title span{font-size:12px; color:var(--muted)}
+    .actions{display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end}
+    .field{
+      display:flex; align-items:center; gap:8px;
+      padding:8px 10px; border:1px solid var(--line); border-radius:12px; background:var(--field);
+      color:var(--txt);
+    }
+    input[type="date"]{
+      background:transparent; border:0; outline:0; color:var(--txt);
+      font-size:13px;
+    }
+    button{
+      cursor:pointer; border:1px solid var(--line); background:linear-gradient(180deg, #1d1d2a, #13131d);
+      color:var(--txt); padding:10px 12px; border-radius:12px; font-weight:600;
+    }
+    button.primary{
+      border-color: rgba(47,124,255,.55);
+      background: linear-gradient(180deg, rgba(47,124,255,.32), rgba(19,19,29,.95));
+    }
+    button:active{transform: translateY(1px)}
+    .grid{
+      display:grid; gap:12px; margin-top:14px;
+      grid-template-columns: repeat(12, 1fr);
+    }
+    .card{
+      grid-column: span 3;
+      background: rgba(21,21,32,.78);
+      border:1px solid var(--line);
+      border-radius:16px;
+      padding:14px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.22);
+      min-height:92px;
+    }
+    .card h4{margin:0 0 6px 0; font-size:12px; color:var(--muted); font-weight:700; letter-spacing:.02em}
+    .kpi{font-size:22px; font-weight:900; letter-spacing:.2px}
+    .sub{margin-top:6px; font-size:12px; color:var(--muted)}
+    .ok{color:var(--ok)} .bad{color:var(--bad)}
+    .wide{grid-column: span 12}
+    .half{grid-column: span 6}
+    .panel{
+      background: rgba(21,21,32,.78);
+      border:1px solid var(--line);
+      border-radius:16px;
+      padding:14px;
+    }
+    .panelHead{
+      display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
+      margin-bottom:10px;
+    }
+    .panelHead b{font-size:14px}
+    .panelHead span{font-size:12px; color:var(--muted)}
+    table{
+      width:100%;
+      border-collapse:collapse;
+      overflow:hidden;
+      border-radius:12px;
+      border:1px solid var(--line);
+    }
+    th, td{
+      padding:10px 10px;
+      border-bottom:1px solid var(--line);
+      font-size:13px;
+      text-align:left;
+    }
+    th{background: rgba(33,33,51,.8); color:#d8dcff; font-size:12px; letter-spacing:.02em}
+    tr:hover td{background: rgba(47,124,255,.06)}
+    .muted{color:var(--muted)}
+    .pill{
+      display:inline-flex; align-items:center; gap:6px;
+      padding:5px 8px; border-radius:999px; border:1px solid var(--line);
+      background: rgba(33,33,51,.6); font-size:12px; color:#e7e9ff;
+    }
+    .err{
+      margin-top:12px;
+      padding:12px; border-radius:14px;
+      border:1px solid rgba(255,90,90,.35);
+      background: rgba(255,90,90,.08);
+      color:#ffd6d6;
+      display:none;
+      white-space:pre-wrap;
+    }
+    @media (max-width: 980px){
+      .card{grid-column: span 6}
+      .half{grid-column: span 12}
+    }
+    @media (max-width: 520px){
+      .card{grid-column: span 12}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo" aria-hidden="true"></div>
+        <div class="title">
+          <b>Reportes</b>
+          <span>Ventas, usuarios, propinas y productos</span>
+        </div>
+      </div>
+
+      <div class="actions">
+        <div class="field" title="Desde">
+          <span class="muted">Desde</span>
+          <input id="fromDate" type="date" />
+        </div>
+        <div class="field" title="Hasta">
+          <span class="muted">Hasta</span>
+          <input id="toDate" type="date" />
+        </div>
+        <button id="btnRefresh" class="primary">Actualizar</button>
+        <button id="btnBack">Volver</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h4>Total vendido</h4>
+        <div id="kpiTotalSold" class="kpi">—</div>
+        <div id="kpiTotalSoldSub" class="sub">—</div>
+      </div>
+
+      <div class="card">
+        <h4>Total propina</h4>
+        <div id="kpiTips" class="kpi">—</div>
+        <div id="kpiTipsSub" class="sub">—</div>
+      </div>
+
+      <div class="card">
+        <h4>Total usuarios</h4>
+        <div id="kpiUsers" class="kpi">—</div>
+        <div id="kpiUsersSub" class="sub">—</div>
+      </div>
+
+      <div class="card">
+        <h4>Transacciones</h4>
+        <div id="kpiTx" class="kpi">—</div>
+        <div id="kpiTxSub" class="sub">—</div>
+      </div>
+
+      <div class="panel half">
+        <div class="panelHead">
+          <div>
+            <b>Top productos</b><br />
+            <span>Más vendidos en el rango</span>
+          </div>
+          <div class="pill" id="rangePill">—</div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width:56px;">#</th>
+              <th>Producto</th>
+              <th style="width:120px;">Cantidad</th>
+              <th style="width:140px;">Importe</th>
+            </tr>
+          </thead>
+          <tbody id="topProductsBody">
+            <tr><td colspan="4" class="muted">Cargando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="panel half">
+        <div class="panelHead">
+          <div>
+            <b>Resumen</b><br />
+            <span>KPIs calculados (incluye ticket promedio)</span>
+          </div>
+        </div>
+
+        <table>
+          <tbody id="summaryBody">
+            <tr><td class="muted">Cargando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div id="errBox" class="err wide"></div>
+    </div>
+  </div>
+
+<script src="/common.js"></script>
+<script src="./reports.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin · Cashless</title>
+  <style>
+    :root{
+      --bg:#0b0b0f; --card:#151520; --muted:#9aa0a6; --txt:#fff;
+      --blue:#2f7cff; --alt:#2a2a3a; --red:#ff5a5a;
+      --okbg:#133d22; --ok:#7dff9a; --badbg:#3d1313; --bad:#ff9a9a;
+      --field:#0f0f18;
+    }
+    body{ font-family: system-ui, Arial; background:var(--bg); color:var(--txt); margin:0 }
+    .wrap{ max-width:560px; margin:0 auto; padding:16px }
+    h1{ font-size:20px; margin:0 0 12px; display:flex; align-items:center; gap:8px }
+    h2{ font-size:16px; margin:0 0 10px }
+    .card{ background:var(--card); border-radius:14px; padding:14px; margin-bottom:12px }
+    .row{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
+    .meta{ display:flex; gap:10px; flex-wrap:wrap; align-items:center }
+    .pill{ background:#10101a; border:1px solid #26263a; color:var(--muted);
+           padding:6px 10px; border-radius:999px; font-size:12px }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace }
+    .muted{ color:var(--muted) }
+
+    button{
+      width:100%; padding:14px; font-size:16px; border-radius:12px; border:0;
+      background:var(--blue); color:#fff; font-weight:800; cursor:pointer
+    }
+    button.alt{ background:var(--alt) }
+    button.red{ background:var(--red) }
+    button:disabled{ opacity:.45; cursor:not-allowed }
+
+    input{
+      width:100%; padding:12px; border-radius:10px; border:1px solid #26263a;
+      background:var(--field); color:#fff; outline:none
+    }
+    input:focus{ border-color:#3a6cff }
+
+    .status{ margin-top:10px; padding:12px; border-radius:10px; font-weight:700 }
+    .ok{ background:var(--okbg); color:var(--ok) }
+    .bad{ background:var(--badbg); color:var(--bad) }
+    .idle{ background:#10101a; color:#c9cdd3; border:1px solid #26263a }
+
+    .dot{
+      width:10px; height:10px; border-radius:50%; background:#666; display:inline-block
+    }
+    .dot.on{ background:#35ff7a }
+    .grid2{ display:grid; grid-template-columns: 1fr; gap:10px }
+    @media (min-width: 520px){
+      .grid2{ grid-template-columns: 1fr 1fr }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <h1>🛠️ Administración <span id="jsDot" class="dot" title="JS cargado"></span></h1>
+
+    <!-- Sesión -->
+    <div class="card">
+      <div class="meta">
+        <div class="pill"><b>Operador:</b> <span id="sessionInfo">—</span></div>
+        <div class="pill"><b>UID:</b> <span id="uid" class="mono muted">—</span></div>
+      </div>
+
+      <div class="grid2" style="margin-top:10px">
+        <button class="alt" id="btnUid">📟 Leer pulsera</button>
+        <button class="red" id="btnLogout">🚪 Cerrar sesión</button>
+      </div>
+
+      <div id="status" class="status idle" style="margin-top:12px">Listo.</div>
+    </div>
+
+    <!-- Datos actuales -->
+    <div class="card">
+      <h2>📌 Datos de la pulsera</h2>
+      <div class="row">
+        <div>
+          <div class="muted" style="font-size:12px;margin-bottom:6px">Cliente</div>
+          <div id="clientName" style="font-weight:800">—</div>
+        </div>
+        <div>
+          <div class="muted" style="font-size:12px;margin-bottom:6px">Saldo</div>
+          <div style="font-weight:800">$<span id="clientBalance">—</span></div>
+        </div>
+      </div>
+      <div class="muted" style="margin-top:10px;font-size:12px">
+        Tip: si dice “pulsera no asignada”, crea el usuario y asigna abajo.
+      </div>
+    </div>
+
+    <!-- Recarga -->
+    <div class="card">
+      <h2>💰 Recarga</h2>
+      <input id="amount" type="number" inputmode="decimal" placeholder="Monto a recargar (ej: 500)">
+      <div class="grid2" style="margin-top:10px">
+        <button id="btnTopup">➕ Recargar saldo</button>
+        <button class="alt" id="btnQuick500" type="button">+ $500</button>
+      </div>
+    </div>
+
+    <!-- Usuario + asignación -->
+    <div class="card">
+      <h2>👤 Usuario + asignación</h2>
+      <input id="userName" placeholder="Nombre del cliente (ej: Sofía)">
+      <div class="grid2" style="margin-top:10px">
+        <button id="btnAssign">🧷 Crear usuario + asignar pulsera</button>
+        <button class="alt" id="btnClear" type="button">Limpiar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin JS (defer para asegurar DOM listo) -->
+  <script defer src="/admin.js?v=final"></script>
+
+  <!-- Mini UX helpers (no backend) -->
+  <script>
+    // Estos helpers son opcionales y no rompen si admin.js maneja todo.
+    document.addEventListener("DOMContentLoaded", () => {
+      const q500 = document.getElementById("btnQuick500");
+      const amt = document.getElementById("amount");
+      const clear = document.getElementById("btnClear");
+      if(q500 && amt){
+        q500.addEventListener("click", () => { amt.value = 500; amt.focus(); });
+      }
+      if(clear){
+        clear.addEventListener("click", () => {
+          const u = document.getElementById("uid");
+          const cn = document.getElementById("clientName");
+          const cb = document.getElementById("clientBalance");
+          const un = document.getElementById("userName");
+          if(u) u.textContent = "—";
+          if(cn) cn.textContent = "—";
+          if(cb) cb.textContent = "—";
+          if(un) un.value = "";
+          if(amt) amt.value = "";
+        });
+      }
+    });
+  </script>
+</body>
+</html>

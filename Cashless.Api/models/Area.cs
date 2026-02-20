@@ -1,0 +1,13 @@
+namespace Cashless.Api.Models;
+
+public class Area
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? CustomType { get; set; }
+    public AreaType Type { get; set; } = AreaType.General;
+    public bool IsActive { get; set; } = true;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public ICollection<Operator> Operators { get; set; } = new List<Operator>();
+}
