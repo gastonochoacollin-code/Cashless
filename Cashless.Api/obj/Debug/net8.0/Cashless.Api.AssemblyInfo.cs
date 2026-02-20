@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Cashless.Api")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e22901ad8688b05eff3faa6773852ac7a0a0a8ec")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+95dcff208bb1bb170f6a9bc11c548dc54690a34d")]
 [assembly: System.Reflection.AssemblyProductAttribute("Cashless.Api")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Cashless.Api")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
