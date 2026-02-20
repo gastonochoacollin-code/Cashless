@@ -1,0 +1,108 @@
+========================================
+CASHLESS – GUIA RAPIDA DE DESARROLLO
+========================================
+
+UBICACIÓN DEL PROYECTO
+C:\Users\Adrian\source\repos\Cashless
+
+----------------------------------------
+1) CORRER LA APP
+----------------------------------------
+
+Desde raíz:
+    dotnet run --project Cashless.Api
+
+Desde carpeta API:
+    cd Cashless.Api
+    dotnet run
+
+Exponer en red local:
+    dotnet run --project Cashless.Api --urls "http://0.0.0.0:5001"
+
+----------------------------------------
+2) CONTROL DE VERSIONES (GIT)
+----------------------------------------
+
+Ver estado:
+    git status
+
+Guardar cambios:
+    git add .
+    git commit -m "mensaje claro"
+
+Subir a GitHub:
+    git push
+
+Crear nueva rama:
+    git checkout -b nombre-rama
+
+Volver a main:
+    git checkout main
+
+Descartar cambios:
+    git reset --hard HEAD
+
+----------------------------------------
+3) USAR CODEX
+----------------------------------------
+
+Entrar al proyecto:
+    cd C:\Users\Adrian\source\repos\Cashless
+
+Iniciar agente:
+    codex
+
+REGLA DE ORO:
+Antes de dejar que modifique archivos:
+    git commit -m "backup antes de cambios"
+
+----------------------------------------
+4) BUILD Y VALIDACION
+----------------------------------------
+
+Compilar:
+    dotnet build
+
+Si build falla:
+    revisar errores de namespace o using
+
+----------------------------------------
+5) ARQUITECTURA ACTUAL
+----------------------------------------
+
+Cashless.Api
+│
+├── Program.cs (bootstrap)
+├── Controllers/
+├── Dtos/
+├── Services/
+├── Repositories/
+├── Middleware/
+├── Models/
+├── Data/
+
+----------------------------------------
+6) PUERTOS Y ACCESO
+----------------------------------------
+
+Local:
+    http://localhost:5001
+
+Red local:
+    http://IP_LOCAL:5001
+
+----------------------------------------
+7) FLUJO SEGURO DE REFACTOR
+----------------------------------------
+
+1) git add .
+2) git commit -m "backup"
+3) usar codex
+4) dotnet build
+5) probar app
+6) git commit -m "cambio aplicado"
+7) git push
+
+========================================
+FIN
+========================================

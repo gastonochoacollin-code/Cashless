@@ -3112,11 +3112,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\Adrian\\source\\repos\\Cashless\\Cashless.Api\\Cashless.Api.csproj",
+      "projectUniqueName": "c:\\Users\\Adrian\\source\\repos\\Cashless\\Cashless.Api\\Cashless.Api.csproj",
       "projectName": "Cashless.Api",
-      "projectPath": "C:\\Users\\Adrian\\source\\repos\\Cashless\\Cashless.Api\\Cashless.Api.csproj",
+      "projectPath": "c:\\Users\\Adrian\\source\\repos\\Cashless\\Cashless.Api\\Cashless.Api.csproj",
       "packagesPath": "C:\\Users\\Adrian\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\Adrian\\source\\repos\\Cashless\\Cashless.Api\\obj\\",
+      "outputPath": "c:\\Users\\Adrian\\source\\repos\\Cashless\\Cashless.Api\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -3207,13 +3207,5 @@
         "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.102/PortableRuntimeIdentifierGraph.json"
       }
     }
-  },
-  "logs": [
-    {
-      "code": "NU1900",
-      "level": "Warning",
-      "warningLevel": 1,
-      "message": "Error al obtener los datos de vulnerabilidad del paquete: No se puede cargar el índice de servicio para el origen https://api.nuget.org/v3/index.json."
-    }
-  ]
+  }
 }

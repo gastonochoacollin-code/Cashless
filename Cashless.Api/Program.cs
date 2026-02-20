@@ -3,9 +3,8 @@ using Cashless.Api.Dtos.Admin;
 using Cashless.Api.Dtos.Auth;
 using Cashless.Api.Dtos.Barra;
 using Cashless.Api.Models;
+using Cashless.Api.Services.Auth;
 using Microsoft.EntityFrameworkCore;
-using System.Security.Cryptography;
-using System.Text;
 
 Console.WriteLine("🔥 PROGRAM.CS (Cashless.Api) 🔥");
 
@@ -13,6 +12,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddDbContext<CashlessContext>(opt =>
     opt.UseSqlite("Data Source=cashless.db"));
+builder.Services.AddScoped<IAuthService, AuthService>();
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -26,60 +26,6 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 
-
-// =======================
-// Helpers Auth
-// =======================
-string HashPin(string pin)
-{
-    using var sha = SHA256.Create();
-    return Convert.ToHexString(sha.ComputeHash(Encoding.UTF8.GetBytes(pin)));
-}
-
-string MakeToken(int operatorId, string pinHash)
-{
-    using var sha = SHA256.Create();
-    return Convert.ToHexString(sha.ComputeHash(Encoding.UTF8.GetBytes($"{operatorId}:{pinHash}")));
-}
-
-async Task<Operator?> Authenticate(CashlessContext db, HttpRequest req)
-{
-    // 1) operatorId: acepta varias variantes
-    string? opIdRaw =
-        req.Headers["X-Operator-Id"].FirstOrDefault()
-        ?? req.Headers["X-OperatorId"].FirstOrDefault()
-        ?? req.Headers["operatorid"].FirstOrDefault()
-        ?? req.Headers["OperatorId"].FirstOrDefault();
-
-    if (!int.TryParse(opIdRaw, out var id)) return null;
-
-    // 2) token: acepta Bearer y alternativos
-    string? tokenRaw = req.Headers["X-Operator-Token"].FirstOrDefault()
-        ?? req.Headers["x-operator-token"].FirstOrDefault()
-        ?? req.Headers["token"].FirstOrDefault()
-        ?? req.Headers["x-auth-token"].FirstOrDefault()
-        ?? req.Headers["x-access-token"].FirstOrDefault()
-        ?? req.Headers["x-token"].FirstOrDefault();
-
-    // Authorization: Bearer xxx
-    var auth = req.Headers["authorization"].FirstOrDefault();
-    if (!string.IsNullOrWhiteSpace(auth) && auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-        tokenRaw ??= auth.Substring("Bearer ".Length).Trim();
-
-    if (string.IsNullOrWhiteSpace(tokenRaw)) return null;
-
-    var op = await db.Operators
-        .Include(o => o.Area)
-        .FirstOrDefaultAsync(o => o.Id == id && o.IsActive);
-
-    if (op is null) return null;
-
-    var expected = MakeToken(op.Id, op.PinHash);
-    if (!string.Equals(expected, tokenRaw, StringComparison.OrdinalIgnoreCase))
-        return null;
-
-    return op;
-}
 
 
 
@@ -110,6 +56,7 @@ bool CanDeleteOperator(Operator op, Operator target)
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<CashlessContext>();
+    var auth = scope.ServiceProvider.GetRequiredService<IAuthService>();
     db.Database.Migrate();
 
     if (!db.Operators.Any())
@@ -122,11 +69,11 @@ using (var scope = app.Services.CreateScope())
         db.SaveChanges();
 
         db.Operators.AddRange(
-            new Operator { Name = "Super Admin", Role = OperatorRole.SuperAdmin, AreaId = aGeneral.Id, PinHash = HashPin("9999"), IsActive = true },
-            new Operator { Name = "Admin", Role = OperatorRole.Admin, AreaId = aGeneral.Id, PinHash = HashPin("1111"), IsActive = true },
-            new Operator { Name = "Jefe Operativo", Role = OperatorRole.JefeOperativo, AreaId = aGeneral.Id, PinHash = HashPin("2222"), IsActive = true },
-            new Operator { Name = "Jefe Barra 1", Role = OperatorRole.JefeDeBarra, AreaId = aBarra1.Id, PinHash = HashPin("3333"), IsActive = true },
-            new Operator { Name = "Jefe Stand 1", Role = OperatorRole.JefeDeStand, AreaId = aStand1.Id, PinHash = HashPin("4444"), IsActive = true }
+            new Operator { Name = "Super Admin", Role = OperatorRole.SuperAdmin, AreaId = aGeneral.Id, PinHash = auth.HashPin("9999"), IsActive = true },
+            new Operator { Name = "Admin", Role = OperatorRole.Admin, AreaId = aGeneral.Id, PinHash = auth.HashPin("1111"), IsActive = true },
+            new Operator { Name = "Jefe Operativo", Role = OperatorRole.JefeOperativo, AreaId = aGeneral.Id, PinHash = auth.HashPin("2222"), IsActive = true },
+            new Operator { Name = "Jefe Barra 1", Role = OperatorRole.JefeDeBarra, AreaId = aBarra1.Id, PinHash = auth.HashPin("3333"), IsActive = true },
+            new Operator { Name = "Jefe Stand 1", Role = OperatorRole.JefeDeStand, AreaId = aStand1.Id, PinHash = auth.HashPin("4444"), IsActive = true }
         );
 
         db.SaveChanges();
@@ -134,10 +81,10 @@ using (var scope = app.Services.CreateScope())
 }
 
 
-app.MapGet("/api/reports1/summary", async (CashlessContext db, HttpRequest req,
+app.MapGet("/api/reports1/summary", async (CashlessContext db, HttpRequest req, IAuthService auth,
     string? from, string? to, int? areaId) =>
 {
-    var op = await Authenticate(db, req);
+    var op = await auth.AuthenticateAsync(db, req);
     if (op is null) return Results.Unauthorized();
 
     // rango
@@ -170,10 +117,10 @@ app.MapGet("/api/reports1/summary", async (CashlessContext db, HttpRequest req,
     });
 });
 
-app.MapGet("/api/reports1/top-products", async (CashlessContext db, HttpRequest req,
+app.MapGet("/api/reports1/top-products", async (CashlessContext db, HttpRequest req, IAuthService auth,
     string? from, string? to, int? areaId, int? take) =>
 {
-    var op = await Authenticate(db, req);
+    var op = await auth.AuthenticateAsync(db, req);
     if (op is null) return Results.Unauthorized();
 
     var fromDt = DateTime.TryParse(from, out var f) ? f.Date : DateTime.Today.AddDays(-6);
@@ -232,9 +179,9 @@ app.MapGet("/last-uid", () =>
 // =======================
 // OperatorAreas (asignación de barras a colaboradores) - PROTEGIDO
 // =======================
-app.MapGet("/api/operators/{id:int}/areas", async Task<IResult> (int id, CashlessContext db, HttpContext http) =>
+app.MapGet("/api/operators/{id:int}/areas", async Task<IResult> (int id, CashlessContext db, HttpContext http, IAuthService auth) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var list = await db.OperatorAreas
@@ -253,9 +200,9 @@ app.MapGet("/api/operators/{id:int}/areas", async Task<IResult> (int id, Cashles
     return Results.Ok(list);
 });
 
-app.MapPost("/api/operators/{id:int}/areas", async Task<IResult> (int id, OperatorArea dto, CashlessContext db, HttpContext http) =>
+app.MapPost("/api/operators/{id:int}/areas", async Task<IResult> (int id, OperatorArea dto, CashlessContext db, HttpContext http, IAuthService auth) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     dto.OperatorId = id;
@@ -266,9 +213,9 @@ app.MapPost("/api/operators/{id:int}/areas", async Task<IResult> (int id, Operat
 
 
 // ===================== AREAS (BARRAS) - PROTEGIDO (Type string + CustomType) =====================
-app.MapGet("/api/areas", async Task<IResult> (CashlessContext db, HttpContext http) =>
+app.MapGet("/api/areas", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var areas = await db.Areas
@@ -286,9 +233,9 @@ app.MapGet("/api/areas", async Task<IResult> (CashlessContext db, HttpContext ht
     return Results.Ok(areas);
 });
 
-app.MapPost("/api/areas", async Task<IResult> (AreaUpsertDto dto, CashlessContext db, HttpContext http) =>
+app.MapPost("/api/areas", async Task<IResult> (AreaUpsertDto dto, CashlessContext db, HttpContext http, IAuthService auth) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     if (string.IsNullOrWhiteSpace(dto.Name))
@@ -318,9 +265,9 @@ app.MapPost("/api/areas", async Task<IResult> (AreaUpsertDto dto, CashlessContex
     });
 });
 
-app.MapPut("/api/areas/{id:int}", async Task<IResult> (int id, AreaUpsertDto dto, CashlessContext db, HttpContext http) =>
+app.MapPut("/api/areas/{id:int}", async Task<IResult> (int id, AreaUpsertDto dto, CashlessContext db, HttpContext http, IAuthService auth) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var area = await db.Areas.FindAsync(id);
@@ -349,9 +296,9 @@ app.MapPut("/api/areas/{id:int}", async Task<IResult> (int id, AreaUpsertDto dto
     });
 });
 
-app.MapDelete("/api/areas/{id:int}", async Task<IResult> (int id, CashlessContext db, HttpContext http) =>
+app.MapDelete("/api/areas/{id:int}", async Task<IResult> (int id, CashlessContext db, HttpContext http, IAuthService auth) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var area = await db.Areas.FindAsync(id);
@@ -364,9 +311,9 @@ app.MapDelete("/api/areas/{id:int}", async Task<IResult> (int id, CashlessContex
 
 
 // ===================== PRODUCTS - PROTEGIDO =====================
-app.MapGet("/api/products", async Task<IResult> (CashlessContext db, HttpContext http) =>
+app.MapGet("/api/products", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var list = await db.Products
@@ -385,9 +332,9 @@ app.MapGet("/api/products", async Task<IResult> (CashlessContext db, HttpContext
     return Results.Ok(list);
 });
 
-app.MapPost("/api/products", async Task<IResult> (ProductUpsertDto dto, CashlessContext db, HttpContext http) =>
+app.MapPost("/api/products", async Task<IResult> (ProductUpsertDto dto, CashlessContext db, HttpContext http, IAuthService auth) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     if (string.IsNullOrWhiteSpace(dto.Name))
@@ -418,9 +365,9 @@ app.MapPost("/api/products", async Task<IResult> (ProductUpsertDto dto, Cashless
     });
 });
 
-app.MapPut("/api/products/{id:int}", async Task<IResult> (int id, ProductUpsertDto dto, CashlessContext db, HttpContext http) =>
+app.MapPut("/api/products/{id:int}", async Task<IResult> (int id, ProductUpsertDto dto, CashlessContext db, HttpContext http, IAuthService auth) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var p = await db.Products.FindAsync(id);
@@ -450,9 +397,9 @@ app.MapPut("/api/products/{id:int}", async Task<IResult> (int id, ProductUpsertD
     });
 });
 
-app.MapDelete("/api/products/{id:int}", async Task<IResult> (int id, CashlessContext db, HttpContext http) =>
+app.MapDelete("/api/products/{id:int}", async Task<IResult> (int id, CashlessContext db, HttpContext http, IAuthService auth) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var p = await db.Products.FindAsync(id);
@@ -465,9 +412,9 @@ app.MapDelete("/api/products/{id:int}", async Task<IResult> (int id, CashlessCon
 
 
 // ===================== MENU POR AREA (AreaProduct) - PROTEGIDO =====================
-app.MapGet("/api/areas/{areaId:int}/products", async Task<IResult> (int areaId, CashlessContext db, HttpContext http) =>
+app.MapGet("/api/areas/{areaId:int}/products", async Task<IResult> (int areaId, CashlessContext db, HttpContext http, IAuthService auth) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var area = await db.Areas.FindAsync(areaId);
@@ -495,9 +442,9 @@ app.MapGet("/api/areas/{areaId:int}/products", async Task<IResult> (int areaId, 
     return Results.Ok(list);
 });
 
-app.MapPost("/api/areas/{areaId:int}/products", async Task<IResult> (int areaId, AreaProductCreateDto dto, CashlessContext db, HttpContext http) =>
+app.MapPost("/api/areas/{areaId:int}/products", async Task<IResult> (int areaId, AreaProductCreateDto dto, CashlessContext db, HttpContext http, IAuthService auth) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var area = await db.Areas.FindAsync(areaId);
@@ -538,9 +485,9 @@ app.MapPost("/api/areas/{areaId:int}/products", async Task<IResult> (int areaId,
     });
 });
 
-app.MapPut("/api/areas/{areaId:int}/products/{areaProductId:int}", async Task<IResult> (int areaId, int areaProductId, AreaProductUpdateDto dto, CashlessContext db, HttpContext http) =>
+app.MapPut("/api/areas/{areaId:int}/products/{areaProductId:int}", async Task<IResult> (int areaId, int areaProductId, AreaProductUpdateDto dto, CashlessContext db, HttpContext http, IAuthService auth) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var link = await db.AreaProducts
@@ -572,9 +519,9 @@ app.MapPut("/api/areas/{areaId:int}/products/{areaProductId:int}", async Task<IR
     });
 });
 
-app.MapDelete("/api/areas/{areaId:int}/products/{areaProductId:int}", async Task<IResult> (int areaId, int areaProductId, CashlessContext db, HttpContext http) =>
+app.MapDelete("/api/areas/{areaId:int}/products/{areaProductId:int}", async Task<IResult> (int areaId, int areaProductId, CashlessContext db, HttpContext http, IAuthService auth) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var link = await db.AreaProducts.FirstOrDefaultAsync(x => x.Id == areaProductId && x.AreaId == areaId);
@@ -587,9 +534,9 @@ app.MapDelete("/api/areas/{areaId:int}/products/{areaProductId:int}", async Task
 
 
 // ===================== OPERATORS (COLABORADORES) - PROTEGIDO =====================
-app.MapGet("/api/operators", async Task<IResult> (CashlessContext db, HttpContext http) =>
+app.MapGet("/api/operators", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
     if (!CanManageOperators(op)) return Forbidden("No tienes permisos para ver colaboradores.");
 
@@ -610,9 +557,9 @@ app.MapGet("/api/operators", async Task<IResult> (CashlessContext db, HttpContex
     return Results.Ok(list);
 });
 
-app.MapPost("/api/operators", async Task<IResult> (CashlessContext db, HttpContext http, OperatorUpsertDto dto) =>
+app.MapPost("/api/operators", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, OperatorUpsertDto dto) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
     if (!CanManageOperators(op)) return Forbidden("No tienes permisos para crear colaboradores.");
 
@@ -642,7 +589,7 @@ app.MapPost("/api/operators", async Task<IResult> (CashlessContext db, HttpConte
         Name = dto.Name.Trim(),
         Role = parsedRole,
         AreaId = areaId,
-        PinHash = HashPin(dto.Pin.Trim()),
+        PinHash = auth.HashPin(dto.Pin.Trim()),
         IsActive = dto.IsActive
     };
 
@@ -659,9 +606,9 @@ app.MapPost("/api/operators", async Task<IResult> (CashlessContext db, HttpConte
     });
 });
 
-app.MapPut("/api/operators/{id:int}", async Task<IResult> (int id, CashlessContext db, HttpContext http, OperatorUpsertDto dto) =>
+app.MapPut("/api/operators/{id:int}", async Task<IResult> (int id, CashlessContext db, HttpContext http, IAuthService auth, OperatorUpsertDto dto) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
     if (!CanManageOperators(op)) return Forbidden("No tienes permisos para editar colaboradores.");
 
@@ -692,7 +639,7 @@ app.MapPut("/api/operators/{id:int}", async Task<IResult> (int id, CashlessConte
     }
 
     if (!string.IsNullOrWhiteSpace(dto.Pin))
-        target.PinHash = HashPin(dto.Pin.Trim());
+        target.PinHash = auth.HashPin(dto.Pin.Trim());
 
     await db.SaveChangesAsync();
 
@@ -706,9 +653,9 @@ app.MapPut("/api/operators/{id:int}", async Task<IResult> (int id, CashlessConte
     });
 });
 
-app.MapDelete("/api/operators/{id:int}", async Task<IResult> (int id, CashlessContext db, HttpContext http) =>
+app.MapDelete("/api/operators/{id:int}", async Task<IResult> (int id, CashlessContext db, HttpContext http, IAuthService auth) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
     if (!CanManageOperators(op)) return Forbidden("No tienes permisos para desactivar colaboradores.");
 
@@ -757,7 +704,7 @@ app.MapGet("/areas", async (CashlessContext db) =>
         .ToListAsync();
 });
 
-app.MapPost("/auth/login", async (CashlessContext db, LoginRequest req) =>
+app.MapPost("/auth/login", async (CashlessContext db, LoginRequest req, IAuthService auth) =>
 {
     var op = await db.Operators
         .Include(o => o.Area)
@@ -766,7 +713,7 @@ app.MapPost("/auth/login", async (CashlessContext db, LoginRequest req) =>
     if (op is null)
         return Results.NotFound(new { message = "Operador no existe o inactivo" });
 
-    if (!string.Equals(HashPin(req.Pin.Trim()), op.PinHash, StringComparison.OrdinalIgnoreCase))
+    if (!auth.ValidatePin(req.Pin.Trim(), op.PinHash))
         return Results.BadRequest(new { message = "PIN incorrecto" });
 
     return Results.Ok(new
@@ -776,7 +723,7 @@ app.MapPost("/auth/login", async (CashlessContext db, LoginRequest req) =>
         role = op.Role.ToString(),
         areaId = op.AreaId,
         area = op.Area != null ? op.Area.Name : null,
-        token = MakeToken(op.Id, op.PinHash)
+        token = auth.MakeToken(op.Id, op.PinHash)
     });
 });
 
@@ -784,9 +731,9 @@ app.MapPost("/auth/login", async (CashlessContext db, LoginRequest req) =>
 // =======================
 // PROTEGIDO: Cards lookup
 // =======================
-app.MapGet("/cards/{uid}", async Task<IResult> (CashlessContext db, HttpContext http, string uid) =>
+app.MapGet("/cards/{uid}", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, string uid) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var clean = (uid ?? "").Trim().ToUpperInvariant();
@@ -811,9 +758,9 @@ app.MapGet("/cards/{uid}", async Task<IResult> (CashlessContext db, HttpContext 
 // =======================
 // PROTEGIDO: Users + assign card
 // =======================
-app.MapGet("/users", async Task<IResult> (CashlessContext db, HttpContext http) =>
+app.MapGet("/users", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var users = await db.Users
@@ -833,9 +780,9 @@ app.MapGet("/users", async Task<IResult> (CashlessContext db, HttpContext http) 
     return Results.Ok(users);
 });
 
-app.MapPost("/users", async Task<IResult> (CashlessContext db, HttpContext http, CreateUserRequest req) =>
+app.MapPost("/users", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, CreateUserRequest req) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     if (string.IsNullOrWhiteSpace(req.Name))
@@ -863,9 +810,9 @@ app.MapPost("/users", async Task<IResult> (CashlessContext db, HttpContext http,
     });
 });
 
-app.MapPost("/assign-card", async Task<IResult> (CashlessContext db, HttpContext http, AssignCardRequest req) =>
+app.MapPost("/assign-card", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, AssignCardRequest req) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     if (req.UserId <= 0) return Results.BadRequest(new { message = "UserId inválido" });
@@ -890,9 +837,9 @@ app.MapPost("/assign-card", async Task<IResult> (CashlessContext db, HttpContext
 // =======================
 // PROTEGIDO: Balance/Topup/Charge (Charge con 1 cobro por lectura)
 // =======================
-app.MapGet("/balance/{uid}", async Task<IResult> (CashlessContext db, HttpContext http, string uid) =>
+app.MapGet("/balance/{uid}", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, string uid) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var clean = (uid ?? "").Trim().ToUpperInvariant();
@@ -911,9 +858,9 @@ app.MapGet("/balance/{uid}", async Task<IResult> (CashlessContext db, HttpContex
     });
 });
 
-app.MapPost("/topup", async Task<IResult> (CashlessContext db, HttpContext http, TopupRequest req) =>
+app.MapPost("/topup", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, TopupRequest req) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var uid = (req.Uid ?? "").Trim().ToUpperInvariant();
@@ -938,9 +885,9 @@ app.MapPost("/topup", async Task<IResult> (CashlessContext db, HttpContext http,
     return Results.Ok(new { newBalance = card.User.Balance });
 });
 
-app.MapPost("/charge", async Task<IResult> (CashlessContext db, HttpContext http, ChargeRequest req) =>
+app.MapPost("/charge", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, ChargeRequest req) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var uid = (req.Uid ?? "").Trim().ToUpperInvariant();
@@ -981,9 +928,9 @@ app.MapPost("/charge", async Task<IResult> (CashlessContext db, HttpContext http
 // - Crea 1 tx de SUBTOTAL + 1 tx de TIP (si aplica) + 1 tx de DONATION (si aplica)
 // =======================
 
-app.MapPost("/charge-v2", async Task<IResult> (CashlessContext db, HttpContext http, ChargeRequestV2 req) =>
+app.MapPost("/charge-v2", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, ChargeRequestV2 req) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var uid = (req.Uid ?? "").Trim().ToUpperInvariant();
@@ -1139,9 +1086,9 @@ static DateTime? ParseDate(string? s, bool endOfDay = false)
     return endOfDay ? d.Date.AddDays(1).AddTicks(-1) : d.Date;
 }
 
-app.MapGet("/api/reports/summary", async Task<IResult> (CashlessContext db, HttpContext http, string? from, string? to) =>
+app.MapGet("/api/reports/summary", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, string? from, string? to) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var f = ParseDate(from) ?? DateTime.MinValue;
@@ -1180,9 +1127,9 @@ app.MapGet("/api/reports/summary", async Task<IResult> (CashlessContext db, Http
     });
 });
 
-app.MapGet("/api/reports/top-products", async Task<IResult> (CashlessContext db, HttpContext http, string? from, string? to, int take = 10) =>
+app.MapGet("/api/reports/top-products", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, string? from, string? to, int take = 10) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var f = ParseDate(from) ?? DateTime.MinValue;
@@ -1238,9 +1185,9 @@ app.MapGet("/api/reports/top-products", async Task<IResult> (CashlessContext db,
 });
 
 
-app.MapGet("/transactions/{uid}", async Task<IResult> (CashlessContext db, HttpContext http, string uid) =>
+app.MapGet("/transactions/{uid}", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, string uid) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var clean = (uid ?? "").Trim().ToUpperInvariant();
@@ -1270,9 +1217,9 @@ app.MapGet("/transactions/{uid}", async Task<IResult> (CashlessContext db, HttpC
     });
 });
 
-app.MapPut("/users/{id}/contact", async Task<IResult> (CashlessContext db, HttpContext http, int id, UpdateUserContactRequest req) =>
+app.MapPut("/users/{id}/contact", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, int id, UpdateUserContactRequest req) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var user = await db.Users.FindAsync(id);
@@ -1295,9 +1242,9 @@ app.MapPut("/users/{id}/contact", async Task<IResult> (CashlessContext db, HttpC
     });
 });
 
-app.MapPost("/reassign-card", async Task<IResult> (CashlessContext db, HttpContext http, ReassignCardRequest req) =>
+app.MapPost("/reassign-card", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, ReassignCardRequest req) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     if (req.UserId <= 0) return Results.BadRequest(new { message = "UserId inválido" });
@@ -1400,9 +1347,9 @@ bool HasPerm(Operator op, string perm)
     return ROLE_PERMS.TryGetValue(op.Role, out var set) && set.Contains(perm);
 }
 
-app.MapGet("/api/permissions", async (CashlessContext db, HttpContext http) =>
+app.MapGet("/api/permissions", async (CashlessContext db, HttpContext http, IAuthService auth) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     // Si quieres restringir: solo Admin/SuperAdmin
@@ -1463,9 +1410,9 @@ app.MapGet("/api/permissions", async (CashlessContext db, HttpContext http) =>
 // =======================
 // REPORTES (v2) - basado en Transactions (porque /charge guarda Transaction)
 // =======================
-app.MapGet("/api/reports2/summary", async Task<IResult> (CashlessContext db, HttpContext http, string? from, string? to) =>
+app.MapGet("/api/reports2/summary", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, string? from, string? to) =>
 {
-    var op = await Authenticate(db, http.Request);
+    var op = await auth.AuthenticateAsync(db, http.Request);
     if (op is null) return Results.Unauthorized();
 
     var fromDt = DateTime.TryParse(from, out var f) ? f.Date : DateTime.Today.AddDays(-6);
@@ -1499,6 +1446,10 @@ app.MapGet("/api/reports2/summary", async Task<IResult> (CashlessContext db, Htt
 
 
 app.Run();
+
+
+
+
 
 
 
