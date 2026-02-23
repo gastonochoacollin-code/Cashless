@@ -45,14 +45,6 @@ function init(){
   $("kpiTx").textContent = fmtInt(resumen.txCount ?? 0);
   $("kpiAvg").textContent = money(resumen.avg ?? 0);
 
-  renderTable("productsBody", payload.topProductos || [], (r)=>`
-    <tr>
-      <td>${r.name ?? r.productName ?? "—"}</td>
-      <td>${fmtInt(r.qty ?? 0)}</td>
-      <td>${money(r.amount ?? r.total ?? 0)}</td>
-    </tr>
-  `);
-
   renderTable("operatorsBody", payload.topOperadores || [], (r)=>`
     <tr>
       <td>${r.operatorName || (r.operatorId ? `#${r.operatorId}` : "—")}</td>

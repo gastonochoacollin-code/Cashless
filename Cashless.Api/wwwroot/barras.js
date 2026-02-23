@@ -1,5 +1,10 @@
 // wwwroot/barras.js
 requireSession();
+const role = String(getSession()?.role || getSession()?.Role || "").trim().toLowerCase();
+if(role === "cajero" || role === "cashier"){
+  window.location.href = "/dashboard-caja/";
+  throw new Error("Forbidden role");
+}
 
 // Escape HTML
 function esc(input){
@@ -99,7 +104,7 @@ function render(){
         <div class="actions">
           <button class="btn alt small" data-act="save" data-id="${a.id}">Guardar</button>
           <button class="btn danger small" data-act="disable" data-id="${a.id}">Desactivar</button>
-          <a class="btn alt small" href="barra.html?areaId=${a.id}">Abrir POS</a>
+          <a class="btn alt small" href="pos.html?areaId=${a.id}">Abrir POS</a>
         </div>
       </td>
     `;

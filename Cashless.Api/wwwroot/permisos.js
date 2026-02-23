@@ -1,7 +1,12 @@
 (() => {
   const $ = (sel) => document.querySelector(sel);
+  const role = String(getSession()?.role || getSession()?.Role || "").trim().toLowerCase();
+  if(role === "cajero" || role === "cashier"){
+    window.location.href = "/dashboard-caja/";
+    throw new Error("Forbidden role");
+  }
 
-  const ROLES = ["SuperAdmin","Admin","JefeOperativo","JefeDeBarra","JefeDeStand"];
+  const ROLES = ["SuperAdmin","Admin","JefeOperativo","JefeDeBarra","JefeDeStand","Cajero"];
 
   // Matriz local (fallback)
   const LOCAL_SCHEMA = {
@@ -43,6 +48,11 @@
       },
       JefeDeStand: {
         dashboard_view:true,pos_use:true,topup:false,charge:true,users_manage:false,areas_manage:false,
+        products_manage:false,menus_manage:false,operators_manage:false,reports_view:false,
+        permissions_view:false,permissions_manage:false
+      },
+      Cajero: {
+        dashboard_view:true,pos_use:false,topup:true,charge:false,users_manage:true,areas_manage:false,
         products_manage:false,menus_manage:false,operators_manage:false,reports_view:false,
         permissions_view:false,permissions_manage:false
       }
@@ -99,6 +109,9 @@
 
     // sesión
     const s = requireSession();
+if (typeof renderAppMenu === "function") {
+  renderAppMenu("appMenu", "/permisos.html");
+}
     if (!s) { location.href = "login.html"; return; }
 
     setStatus("", "Cargando...");
@@ -136,3 +149,4 @@
     });
   });
 })();
+

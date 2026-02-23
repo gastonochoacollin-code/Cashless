@@ -1,9 +1,9 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>POS · Cashless</title>
+  <title>POS - Cashless</title>
   <style>
     :root{
       --bg:#0b0b0f; --card:#151520; --muted:#9aa0a6; --txt:#fff;
@@ -78,12 +78,14 @@
     .error{color:var(--red); font-weight:800}
     .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
   </style>
+  <link rel="icon" type="image/png" href="/assets/favicon.png">
+  <link rel="stylesheet" href="/site.css">
 </head>
 <body>
   <div class="wrap">
     <div class="topbar">
       <div class="brand">
-        <b>Cashless</b>
+        <img src="/assets/logo-horizontal.png" alt="Cashless Logo" class="logo-horizontal">
         <span>POS dinámico</span>
       </div>
       <div class="row">
@@ -128,9 +130,9 @@
         <div class="card">
           <h2>UID + Cobro</h2>
           <div class="row" style="margin-bottom:10px">
-            <input id="terminalIdInput" class="field" placeholder="BARRA-01" style="min-width:180px" />
-            <button class="btn alt" id="terminalIdSave">Guardar</button>
-            <span class="pill">Terminal: <span id="terminalIdLabel">—</span></span>
+            <select id="terminalSelect" class="field" style="min-width:180px"></select>
+            <button class="btn alt" id="terminalSave">Guardar</button>
+            <span class="pill">Terminal: <span id="terminalLabel">—</span></span>
           </div>
           <div class="muted" style="margin:-4px 0 10px 0">
             Cada PC debe tener un Terminal distinto para que la lectura no se refleje en otras cajas.
@@ -139,6 +141,12 @@
           <div class="row" style="margin-bottom:10px">
             <input id="uidInput" class="field mono" placeholder="UID manual" style="flex:1;min-width:220px" />
             <button class="btn alt" id="btnLastUid">Usar último UID</button>
+          </div>
+          <div class="row" style="margin-bottom:10px">
+            <div class="pill"><b>Estado:</b> <span id="cardStatusPill">-</span></div>
+            <div class="pill"><b>Titular:</b> <span id="cardHolderName">-</span></div>
+            <div class="pill"><b>Saldo actual:</b> <span id="cardBalanceBefore" class="mono">$0.00</span></div>
+            <div class="pill"><b>Saldo después:</b> <span id="cardBalanceAfter" class="mono">-</span></div>
           </div>
 
           <div class="row" style="margin-bottom:10px">
@@ -178,3 +186,5 @@
   <script src="/pos.js" defer></script>
 </body>
 </html>
+
+

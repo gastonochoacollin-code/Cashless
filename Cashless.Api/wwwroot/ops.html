@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Operativo · Cashless</title>
+  <title>Operativo - Cashless</title>
   <style>
     :root{
       --bg:#0b0b0f; --card:#151520; --muted:#9aa0a6; --txt:#fff;
@@ -61,6 +61,8 @@
     .big b{font-size:16px}
     .big small{color:var(--muted)}
   </style>
+  <link rel="icon" type="image/png" href="/assets/favicon.png">
+  <link rel="stylesheet" href="/site.css">
 </head>
 <body>
   <div class="wrap">
@@ -70,13 +72,13 @@
         <span>Panel operativo</span>
       </div>
       <div class="row">
-        <span class="pill" id="sessionInfo">—</span>
-        <button class="btn danger" id="btnLogout">Cerrar sesión</button>
+        <span class="pill" id="sessionInfo">-</span>
+        <button class="btn danger" id="btnLogout">Cerrar sesion</button>
       </div>
     </div>
 
     <div class="card">
-      <h2>Accesos rápidos</h2>
+      <h2>Accesos rapidos</h2>
       <div class="grid">
         <div class="big">
           <div>
@@ -88,8 +90,8 @@
 
         <div class="big" id="catalogCard">
           <div>
-            <b>Barra / Catálogo</b><br>
-            <small>Productos y menús por barra</small>
+            <b>Barra / Catalogo</b><br>
+            <small>Productos y menus por barra</small>
           </div>
           <button class="btn alt" id="btnCatalog">Abrir</button>
         </div>
@@ -97,7 +99,7 @@
         <div class="big">
           <div>
             <b>Caja / Cortes</b><br>
-            <small id="cashierHint">Resumen de caja</small>
+            <small id="cashierHint">Turnos y cortes (Cajero/JefeOperativo)</small>
           </div>
           <button class="btn" id="btnCashier">Abrir</button>
         </div>
@@ -105,11 +107,11 @@
     </div>
 
     <div class="card">
-      <h2>Último UID</h2>
+      <h2>Ultimo UID</h2>
       <div class="row" style="justify-content:space-between">
         <div>
-          <div class="muted">UID leído por el lector NFC</div>
-          <div id="uidValue" class="mono" style="font-size:20px;margin-top:6px">—</div>
+          <div class="muted">UID leido por el lector NFC</div>
+          <div id="uidValue" class="mono" style="font-size:20px;margin-top:6px">-</div>
         </div>
         <div class="muted" id="uidStatus">Esperando...</div>
       </div>
@@ -120,3 +122,5 @@
   <script src="/ops.js" defer></script>
 </body>
 </html>
+
+

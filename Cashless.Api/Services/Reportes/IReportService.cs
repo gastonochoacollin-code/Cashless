@@ -5,9 +5,7 @@ using Cashless.Api.Data;
 public interface IReportService
 {
     Task<Report1SummaryResult> GetReports1SummaryAsync(CashlessContext db, int tenantId, DateTimeOffset fromDt, DateTimeOffset toDt, int? areaId);
-    Task<List<Report1TopProductRow>> GetReports1TopProductsAsync(CashlessContext db, int tenantId, DateTimeOffset fromDt, DateTimeOffset toDt, int? areaId, int limit);
     Task<ReportSummaryResult> GetReportsSummaryAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to, int? areaId);
-    Task<ReportTopProductsResult> GetReportsTopProductsAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to, int? areaId, int take);
     Task<Report2SummaryResult> GetReports2SummaryAsync(CashlessContext db, int tenantId, DateTimeOffset fromDt, DateTimeOffset toDt);
     Task<List<SalesByAreaRow>> GetSalesByAreaAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to);
     Task<List<ReportsByOperatorRow>> GetReportsByOperatorAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to, int? areaId);
@@ -25,13 +23,6 @@ public sealed record Report1SummaryResult(
     decimal TicketPromedio
 );
 
-public sealed record Report1TopProductRow(
-    int ProductId,
-    string? Name,
-    int Qty,
-    decimal Amount
-);
-
 public sealed record ReportSummaryResult(
     DateTime From,
     DateTime To,
@@ -41,19 +32,6 @@ public sealed record ReportSummaryResult(
     decimal TotalTips,
     decimal TotalDonations,
     decimal TotalCharged
-);
-
-public sealed record ReportTopProductRow(
-    int ProductId,
-    string Name,
-    int Qty,
-    decimal Amount
-);
-
-public sealed record ReportTopProductsResult(
-    DateTime From,
-    DateTime To,
-    List<ReportTopProductRow> Items
 );
 
 public sealed record Report2SummaryResult(

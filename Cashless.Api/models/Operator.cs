@@ -1,4 +1,4 @@
-namespace Cashless.Api.Models;
+﻿namespace Cashless.Api.Models;
 
 public class Operator
 {
@@ -17,5 +17,6 @@ public class Operator
     public string PinHash { get; set; } = string.Empty;
 
     public bool IsActive { get; set; } = true;
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; } = Cashless.Api.Services.Infra.DateTimeProvider.NowMexico();
 }
+

@@ -1,4 +1,7 @@
 const session = requireSession();
+if (typeof renderAppMenu === "function") {
+  renderAppMenu("appMenu", "/operators.html");
+}
 const role = String(session?.role || session?.Role || "");
 const isAdmin = role === "Admin" || role === "SuperAdmin";
 if(!isAdmin){
@@ -49,7 +52,7 @@ function render(){
       <td><input class="field" data-id="${o.id}" data-f="name" value="${esc(o.name)}" style="min-width:220px"/></td>
       <td>
         <select class="field" data-id="${o.id}" data-f="role" style="min-width:160px">
-          ${["JefeDeBarra","JefeDeStand","JefeOperativo","Admin","SuperAdmin"].map(r =>
+          ${["JefeDeBarra","JefeDeStand","JefeOperativo","Cajero","Admin","SuperAdmin"].map(r =>
             `<option value="${r}" ${String(o.role)===r?"selected":""}>${r}</option>`
           ).join("")}
         </select>
@@ -183,3 +186,4 @@ $("btnLogout").addEventListener("click", ()=>{
 });
 
 loadOperators().catch(e=>setMsg("msg","Error cargando /api/operators: "+(e.message||e),true));
+

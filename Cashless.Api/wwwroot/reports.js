@@ -1,22 +1,12 @@
 // wwwroot/reports.js
 (() => {
-  const API_BASE = window.location.origin;
   const el = (id) => document.getElementById(id);
-
-  const SESSION_KEY = "cashless.session";
-  const token =
-    localStorage.getItem("token") ||
-    localStorage.getItem("authToken") ||
-    localStorage.getItem("jwt");
-
-  const sessionRaw = localStorage.getItem(SESSION_KEY);
-  let session = null;
-  try { session = sessionRaw ? JSON.parse(sessionRaw) : null; } catch { session = null; }
-
-  if (!token && !session?.token) {
-    location.href = "/login.html";
-    return;
-  }
+  const FILTER_KEY = "cashless.reports.filters";
+  const role = String(getSession()?.role || getSession()?.Role || "").trim().toLowerCase();
+  const roleNorm = role.replace(/[\s_\-]/g, "");
+  const isAdmin = roleNorm === "admin" || roleNorm === "superadmin";
+  const isBoss = roleNorm.startsWith("jefe");
+  const canViewGlobalReports = isAdmin || isBoss;
 
   function showErr(msg){
     const box = el("errBox");
@@ -25,107 +15,37 @@
     box.textContent = msg || "";
   }
 
-  const money = (n) =>
-    Number(n || 0).toLocaleString("es-MX", { style:"currency", currency:"MXN" });
-  const intFmt = (n) =>
-    Number(n || 0).toLocaleString("es-MX");
-
-  async function apiGet(url){
-    const res = await fetch(url, {
-      headers: {
-        "Accept": "application/json",
-        "Authorization": `Bearer ${session?.token || token}`,
-        "X-Operator-Id": session?.operatorId ? String(session.operatorId) : "",
-        "X-Operator-Token": session?.token ? String(session.token) : "",
-        ...(session?.tenantId ? { "X-Tenant-Id": String(session.tenantId) } : {})
-      },
-      credentials: "include",
-      cache: "no-store"
-    });
-
-    const text = await res.text();
-    let data = null;
-    try{ data = text ? JSON.parse(text) : null; } catch { data = text; }
-
-    if (!res.ok) {
-      const msg = (data && typeof data === "object" && data.message)
-        ? data.message
-        : `HTTP ${res.status}`;
-      const err = new Error(msg);
-      err.status = res.status;
-      err.data = data;
-      throw err;
-    }
-
-    return data;
+  function errLabel(e){
+    const status = Number(e?.status || 0);
+    const msg = String(e?.message || "Error inesperado");
+    return status > 0 ? `ERROR ${status}: ${msg}` : `ERROR: ${msg}`;
   }
 
-  async function getSingle(path){
-    return await apiGet(`${API_BASE}${path}`);
-  }
-
-  function normalizeSummary(s){
-    if (!s || typeof s !== "object") return null;
-    if ("totalVendido" in s){
-      return {
-        totalVendido: s.totalVendido,
-        totalPropina: s.totalPropina ?? 0,
-        usuarios: s.usuarios ?? s.userCount ?? 0,
-        transacciones: s.transacciones ?? s.txCount ?? 0
-      };
-    }
+  function defaultFilters(){
+    const t = new Date();
+    const f = new Date(t);
+    f.setDate(t.getDate() - 6);
     return {
-      totalVendido: s.totalSold ?? 0,
-      totalPropina: s.totalTips ?? 0,
-      usuarios: s.userCount ?? 0,
-      transacciones: s.txCount ?? 0
+      from: f.toISOString().slice(0, 10),
+      to: t.toISOString().slice(0, 10),
+      areaId: "",
+      operatorId: ""
     };
   }
 
-  function normalizeTop(resp){
-    if (Array.isArray(resp)) return resp;
-    return resp?.items || [];
-  }
-
-  function renderSummary(s){
-    el("kpiTotalSold").textContent = money(s.totalVendido);
-    el("kpiTips").textContent = money(s.totalPropina);
-    el("kpiUsers").textContent = intFmt(s.usuarios);
-    el("kpiTx").textContent = intFmt(s.transacciones);
-  }
-
-  function renderTop(rows){
-    const body = el("topProductsBody");
-    if (!rows || rows.length === 0){
-      body.innerHTML = `<tr><td colspan="4">Sin datos</td></tr>`;
-      return;
+  function loadFilters(){
+    const raw = sessionStorage.getItem(FILTER_KEY);
+    if(!raw) return defaultFilters();
+    try{
+      const f = JSON.parse(raw);
+      return { ...defaultFilters(), ...f };
+    }catch{
+      return defaultFilters();
     }
-    body.innerHTML = rows.map((r,i)=>`
-      <tr>
-        <td>${i+1}</td>
-        <td>${r.name}</td>
-        <td>${intFmt(r.qty)}</td>
-        <td>${money(r.amount)}</td>
-      </tr>
-    `).join("");
   }
 
-  function renderSalesByArea(rows){
-    const body = el("salesByAreaBody");
-    if (!body) return;
-    if (!rows || rows.length === 0){
-      body.innerHTML = `<tr><td colspan="5">Sin datos</td></tr>`;
-      return;
-    }
-    body.innerHTML = rows.map(r=>`
-      <tr>
-        <td>${r.areaName || `Área ${r.areaId ?? ""}`}</td>
-        <td>${money(r.totalSold)}</td>
-        <td>${money(r.totalTips)}</td>
-        <td>${intFmt(r.txCount)}</td>
-        <td>${money(r.avgTicket)}</td>
-      </tr>
-    `).join("");
+  function saveFilters(f){
+    sessionStorage.setItem(FILTER_KEY, JSON.stringify(f));
   }
 
   async function loadFestivalActive(){
@@ -133,14 +53,17 @@
     if(!target) return;
 
     try{
-      const list = await apiGet(`${API_BASE}/api/festivals`);
+      const list = await apiJson("/api/festivals", { method: "GET" });
       const active = Array.isArray(list)
         ? list.find(x => (x.isActive ?? x.IsActive) === true)
         : null;
 
       if(active){
-        const name = active.name ?? active.Name ?? `Festival ${active.id ?? active.Id}`;
-        target.textContent = `Festival: ${name}`;
+        const id = active.id ?? active.Id;
+        const name = active.name ?? active.Name ?? `Festival ${id}`;
+        const start = (active.startDate ?? active.StartDate ?? "").toString().slice(0,10);
+        const end = (active.endDate ?? active.EndDate ?? "").toString().slice(0,10);
+        target.textContent = `Festival: ${name} (#${id}) ${start} - ${end}`;
         return;
       }
 
@@ -149,78 +72,98 @@
         return;
       }
     }catch(e){
-      if(e.status === 401){
-        target.textContent = "Festival: sesión expirada";
-        return;
-      }
+      target.textContent = "Festival: -";
+      showErr(errLabel(e));
+      return;
     }
-
-    target.textContent = "Festival: —";
   }
 
-  function setDefaultDates(){
-    const t = new Date();
-    const f = new Date(t); f.setDate(t.getDate()-6);
-    el("fromDate").value = f.toISOString().slice(0,10);
-    el("toDate").value = t.toISOString().slice(0,10);
+  async function loadAreas(){
+    const sel = el("areaSelect");
+    if(!sel) return;
+
+    sel.innerHTML = "<option value=\"\">Todas</option>";
+    try{
+      let list = null;
+      try{
+        list = await apiJson("/api/reports/areas", { method: "GET" });
+      }catch(e){
+        if(Number(e?.status || 0) !== 404) throw e;
+        list = await apiJson("/api/areas", { method: "GET" });
+      }
+      if(Array.isArray(list)){
+        for(const a of list){
+          const opt = document.createElement("option");
+          opt.value = a.id ?? a.Id;
+          opt.textContent = a.name ?? a.Name ?? `Area ${opt.value}`;
+          sel.appendChild(opt);
+        }
+      }
+    }catch(e){
+      showErr(errLabel(e));
+    }
   }
 
-  async function load(){
+  function applyFilters(){
     showErr("");
-
     const from = el("fromDate").value;
     const to = el("toDate").value;
-    el("rangePill").textContent = `${from} → ${to}`;
-
-    try{
-      const summaryUrl = `/api/reports/summary?from=${from}&to=${to}`;
-      const topProductsUrl = `/api/reports/top-products?from=${from}&to=${to}&take=10`;
-      const salesByAreaUrl = `/api/reports/sales-by-area?from=${from}&to=${to}`;
-
-      const summary = await getSingle(summaryUrl);
-      const topResp = await getSingle(topProductsUrl);
-      const salesByArea = await getSingle(salesByAreaUrl);
-
-      const norm = normalizeSummary(summary);
-      if (!norm) throw new Error("Respuesta inválida de summary");
-
-      renderSummary(norm);
-      renderTop(normalizeTop(topResp));
-      renderSalesByArea(salesByArea);
-    } catch (e){
-      console.error("Reports error:", e);
-      renderSummary({ totalVendido: 0, totalPropina: 0, usuarios: 0, transacciones: 0 });
-      if (e.status === 401) {
-        showErr("Sesión expirada");
-        renderTop([]);
-        renderSalesByArea([]);
-        return;
-      }
-      if (e.status === 404) {
-        const failedPath = e.path || "endpoint desconocido";
-        showErr(`404: ${failedPath}`);
-        renderTop([]);
-        renderSalesByArea([]);
-        return;
-      }
-      if (e.status === 500) {
-        showErr("Error del servidor. Intenta más tarde.");
-        renderTop([]);
-        renderSalesByArea([]);
-        return;
-      }
-      showErr(e.message || "Error inesperado");
-      renderTop([]);
-      renderSalesByArea([]);
+    if(!from || !to){
+      showErr("Rango incompleto");
+      return;
     }
+
+    const data = {
+      from,
+      to,
+      areaId: el("areaSelect").value || "",
+      operatorId: el("operatorId").value || ""
+    };
+    saveFilters(data);
   }
 
-  document.addEventListener("DOMContentLoaded", () => {
-    setDefaultDates();
+  function clearFilters(){
+    const d = defaultFilters();
+    el("fromDate").value = d.from;
+    el("toDate").value = d.to;
+    el("areaSelect").value = "";
+    el("operatorId").value = "";
+    saveFilters(d);
+  }
+
+  document.addEventListener("DOMContentLoaded", async () => {
+    requireSession();
+    if (typeof renderAppMenu === "function") {
+      renderAppMenu("appMenu", "/reports.html");
+    }
+
+    const rechargesLink = el("linkRechargesReport");
+    if(rechargesLink && !isAdmin){
+      rechargesLink.style.display = "none";
+    }
+
+    if(!canViewGlobalReports){
+      showErr("No autorizado para reportes generales");
+      const filtersCard = document.querySelector(".card");
+      if(filtersCard) filtersCard.style.display = "none";
+      const grid = document.querySelector(".grid3");
+      if(grid) grid.style.display = "none";
+      return;
+    }
+
+    const f = loadFilters();
+
+    el("fromDate").value = f.from;
+    el("toDate").value = f.to;
+    el("operatorId").value = f.operatorId || "";
+
+    await loadAreas();
+    el("areaSelect").value = f.areaId || "";
+
     loadFestivalActive();
-    el("btnApply").addEventListener("click", () => load());
-    el("btnReload").addEventListener("click", () => load());
-    el("btnBack").addEventListener("click", () => location.href = "./dashboard.html");
-    load();
+
+    el("btnApply").addEventListener("click", applyFilters);
+    el("btnClear").addEventListener("click", clearFilters);
+    el("btnBack").addEventListener("click", () => location.href = "/dashboard.html");
   });
 })();

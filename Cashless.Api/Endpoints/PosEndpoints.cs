@@ -11,37 +11,33 @@ public static class PosEndpoints
 {
     public static WebApplication MapPosEndpoints(this WebApplication app)
     {
-        async Task<IResult> SetUid(CashlessContext db, HttpContext http, IAuthService auth, UidRequest req, IUidState uidState, string? terminalId)
+        async Task<IResult> SetUid(UidRequest req, IUidState uidState, HttpContext http, string? terminalId)
         {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-
             var uid = NormalizeUid(req.uid);
             if (string.IsNullOrWhiteSpace(uid))
                 return Results.BadRequest(new { message = "UID requerido" });
-            uidState.SetLastUid(uid, terminalId);
-            Console.WriteLine($"UID leÃ­do: {uid}");
+            var resolvedTerminalId = ResolveTerminalId(http, terminalId);
+            uidState.SetLastUid(uid, resolvedTerminalId);
+            Console.WriteLine($"UID leído: {uid} (terminal {resolvedTerminalId})");
             return Results.Ok(new { ok = true });
         }
-        app.MapPost("/api/uid", SetUid);
+        app.MapPost("/api/uid", SetUid).AllowAnonymous();
         // DEPRECATED: usar /api/uid
-        app.MapPost("/uid", SetUid);
+        app.MapPost("/uid", SetUid).AllowAnonymous();
 
-        async Task<IResult> GetLastUid(CashlessContext db, HttpContext http, IAuthService auth, IUidState uidState, string? terminalId)
+        async Task<IResult> GetLastUid(IUidState uidState, HttpContext http, string? terminalId)
         {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-
+            var resolvedTerminalId = ResolveTerminalId(http, terminalId);
             // Nunca 404 para no spamear consola del dashboard.
             // Si no hay UID, devolvemos uid vacío.
-            if (!uidState.TryTakeLastUid(out var uid, terminalId))
-                return Results.Ok(new { uid = "" });
-
-            return Results.Ok(new { uid });
+            var ok = uidState.TryTakeLastUid(out var uid, resolvedTerminalId);
+            var resultUid = ok ? uid : "";
+            Console.WriteLine($"LAST_UID (terminal {resolvedTerminalId}) => {(string.IsNullOrWhiteSpace(resultUid) ? "-" : resultUid)}");
+            return Results.Ok(new { uid = resultUid });
         }
-        app.MapGet("/api/last-uid", GetLastUid);
+        app.MapGet("/api/last-uid", GetLastUid).AllowAnonymous();
         // DEPRECATED: usar /api/last-uid
-        app.MapGet("/last-uid", GetLastUid);
+        app.MapGet("/last-uid", GetLastUid).AllowAnonymous();
 
         app.MapGet("/balance/{uid}", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, string uid) =>
         {
@@ -87,7 +83,7 @@ public static class PosEndpoints
                 CardUid = card.Uid,
                 Amount = req.Amount,
                 Type = TransactionType.TopUp,
-                CreatedAt = DateTime.UtcNow,
+                CreatedAt = DateTimeProvider.NowMexico(),
                 TenantId = tenantId,
                 OperatorId = op.Id,
                 AreaId = op.AreaId
@@ -129,7 +125,7 @@ public static class PosEndpoints
                 CardUid = uid,
                 Amount = req.Amount,
                 Type = TransactionType.Charge,
-                CreatedAt = DateTime.UtcNow,
+                CreatedAt = DateTimeProvider.NowMexico(),
                 TenantId = tenantId,
                 OperatorId = op.Id,
                 AreaId = op.AreaId
@@ -237,7 +233,7 @@ public static class PosEndpoints
                 TipAmount = 0m,
                 Type = TransactionType.Charge,
                 Note = System.Text.Json.JsonSerializer.Serialize(saleMeta),
-                CreatedAt = DateTime.UtcNow,
+                CreatedAt = DateTimeProvider.NowMexico(),
                 TenantId = tenantId,
                 AreaId = req.AreaId,
                 OperatorId = req.OperatorId
@@ -255,7 +251,7 @@ public static class PosEndpoints
                     TipAmount = tipAmount,
                     Type = TransactionType.Charge,
                     Note = System.Text.Json.JsonSerializer.Serialize(tipMeta),
-                    CreatedAt = DateTime.UtcNow,
+                    CreatedAt = DateTimeProvider.NowMexico(),
                     TenantId = tenantId,
                     AreaId = req.AreaId,
                     OperatorId = req.OperatorId
@@ -282,7 +278,7 @@ public static class PosEndpoints
                     TipAmount = 0m,
                     Type = TransactionType.Charge,
                     Note = System.Text.Json.JsonSerializer.Serialize(donMeta),
-                    CreatedAt = DateTime.UtcNow,
+                    CreatedAt = DateTimeProvider.NowMexico(),
                     TenantId = tenantId,
                     AreaId = req.AreaId,
                     OperatorId = req.OperatorId,
@@ -315,17 +311,27 @@ public static class PosEndpoints
             .Trim()
             .ToUpperInvariant()
             .Where(c => !char.IsWhiteSpace(c) && c != '-' && c != ':'));
+
+    private static string ResolveTerminalId(HttpContext http, string? terminalId)
+    {
+        var fromQuery = http.Request.Query.TryGetValue("terminalId", out var q) ? q.ToString() : null;
+        if (!string.IsNullOrWhiteSpace(fromQuery))
+            return NormalizeTerminal(fromQuery);
+
+        var fromHeader = http.Request.Headers.TryGetValue("X-Terminal-Id", out var h) ? h.ToString() : null;
+        if (!string.IsNullOrWhiteSpace(fromHeader))
+            return NormalizeTerminal(fromHeader);
+
+        if (!string.IsNullOrWhiteSpace(terminalId))
+            return NormalizeTerminal(terminalId);
+
+        return NormalizeTerminal(null);
+    }
+
+    private static string NormalizeTerminal(string? terminalId)
+    {
+        var t = (terminalId ?? string.Empty).Trim();
+        return string.IsNullOrWhiteSpace(t) ? "DEFAULT" : t.ToUpperInvariant();
+    }
 }
-
-
-
-
-
-
-
-
-
-
-
-
 

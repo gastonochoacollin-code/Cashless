@@ -48,38 +48,6 @@ public sealed class ReportService : IReportService
         );
     }
 
-    public async Task<List<Report1TopProductRow>> GetReports1TopProductsAsync(CashlessContext db, int tenantId, DateTimeOffset fromDt, DateTimeOffset toDt, int? areaId, int limit)
-    {
-        var from = fromDt.UtcDateTime;
-        var to = toDt.UtcDateTime;
-
-        // ?? Top productos desde SaleItems (ajusta nombres si difieren)
-        var q = db.SaleItems
-            .Where(i => i.TenantId == tenantId && i.Sale.CreatedAt >= from && i.Sale.CreatedAt < to);
-
-        if (areaId.HasValue) q = q.Where(i => i.Sale.AreaId == areaId.Value);
-
-        var rows = await q
-            .GroupBy(i => new { i.ProductId, i.Product.Name })
-            .Select(g => new
-            {
-                productId = g.Key.ProductId,
-                name = g.Key.Name,
-                qty = g.Sum(x => x.Qty),
-                amount = g.Sum(x => (double?)x.LineTotal) ?? 0d
-            })
-            .OrderByDescending(x => x.qty)
-            .ThenByDescending(x => x.amount)
-            .Take(limit)
-            .ToListAsync();
-
-        _logger.LogDebug("[reports1.top-products] from={From} to={To} areaId={AreaId} take={Take} rows={Rows}",
-            from, to, areaId, limit, rows.Count);
-
-        return rows
-            .Select(r => new Report1TopProductRow(r.productId, r.name, r.qty, ToDecimal(r.amount)))
-            .ToList();
-    }
 
     public async Task<ReportSummaryResult> GetReportsSummaryAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to, int? areaId)
     {
@@ -121,63 +89,6 @@ public sealed class ReportService : IReportService
         );
     }
 
-    public async Task<ReportTopProductsResult> GetReportsTopProductsAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to, int? areaId, int take)
-    {
-        var fromUtc = from.UtcDateTime;
-        var toUtc = to.UtcDateTime;
-
-        var baseQuery = db.SaleItems
-            .Where(i => i.TenantId == tenantId && i.Sale.CreatedAt >= fromUtc && i.Sale.CreatedAt <= toUtc);
-
-        if (areaId.HasValue)
-            baseQuery = baseQuery.Where(i => i.Sale.AreaId == areaId.Value);
-
-        List<ReportTopProductRow> rows;
-
-        try
-        {
-            var sqlRows = await baseQuery
-                .GroupBy(i => i.Product.Name)
-                .Select(g => new
-                {
-                    name = g.Key,
-                    qty = g.Sum(x => x.Qty),
-                    amount = g.Sum(x => (double)x.LineTotal)
-                })
-                .OrderByDescending(x => x.qty)
-                .ThenByDescending(x => x.amount)
-                .Take(take)
-                .ToListAsync();
-
-            rows = sqlRows
-                .Select(r => new ReportTopProductRow(0, r.name, r.qty, (decimal)r.amount))
-                .ToList();
-        }
-        catch
-        {
-            var list = await baseQuery
-                .Select(i => new { name = i.Product.Name, qty = i.Qty, amount = i.LineTotal })
-                .ToListAsync();
-
-            rows = list
-                .GroupBy(x => x.name)
-                .Select(g => new ReportTopProductRow(
-                    0,
-                    g.Key,
-                    g.Sum(x => x.qty),
-                    g.Sum(x => x.amount)
-                ))
-                .OrderByDescending(x => x.Qty)
-                .ThenByDescending(x => x.Amount)
-                .Take(take)
-                .ToList();
-        }
-
-        _logger.LogDebug("[reports.top-products] from={From} to={To} take={Take} rows={Rows}",
-            fromUtc, toUtc, take, rows.Count);
-
-        return new ReportTopProductsResult(fromUtc, toUtc, rows);
-    }
 
     public async Task<Report2SummaryResult> GetReports2SummaryAsync(CashlessContext db, int tenantId, DateTimeOffset fromDt, DateTimeOffset toDt)
     {

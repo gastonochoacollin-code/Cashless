@@ -1,5 +1,13 @@
 // wwwroot/menus.js
 requireSession();
+const role = String(getSession()?.role || getSession()?.Role || "").trim().toLowerCase();
+if(role === "cajero" || role === "cashier"){
+  window.location.href = "/dashboard-caja/";
+  throw new Error("Forbidden role");
+}
+if (typeof renderAppMenu === "function") {
+  renderAppMenu("appMenu", "/menus.html");
+}
 
 function esc(v){
   const s = String(v ?? "");
@@ -17,7 +25,7 @@ function setMsg(t, err=false){
 
 let AREAS = [];
 let PRODUCTS = [];
-let MENU = []; // areaProducts (vínculos)
+let MENU = []; // areaProducts (vinculos)
 
 function selectedAreaId(){
   const v = $("areaSelect").value;
@@ -344,3 +352,4 @@ $("btnLogout").addEventListener("click", ()=>{
     setMsg(e.message || String(e), true);
   }
 })();
+

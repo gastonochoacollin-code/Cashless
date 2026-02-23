@@ -71,6 +71,15 @@ public static class AdminEndpoints
             "areas.view",
             "products.view"
         }, StringComparer.OrdinalIgnoreCase),
+
+        [OperatorRole.Cajero] = new HashSet<string>(new[]
+        {
+            "dashboard.view",
+            "pos.topup",
+            "users.view",
+            "users.create",
+            "cards.assign"
+        }, StringComparer.OrdinalIgnoreCase),
     };
 
     public static WebApplication MapAdminEndpoints(this WebApplication app)
@@ -130,9 +139,9 @@ public static class AdminEndpoints
         // ===================== FESTIVALS - PROTEGIDO =====================
         app.MapGet("/api/festivals", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth) =>
         {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-            var tenantId = op.TenantId;
+            var (op, fail) = await RequireAdmin(db, http, auth);
+            if (fail is not null) return fail;
+            var tenantId = op!.TenantId;
 
             var list = await db.Festivals
                 .Where(f => f.TenantId == tenantId)
@@ -150,14 +159,46 @@ public static class AdminEndpoints
             return Results.Ok(list);
         });
 
-        app.MapPost("/api/festivals", async Task<IResult> (FestivalCreateRequest dto, CashlessContext db, HttpContext http, IAuthService auth) =>
+        // Festival list for cajero (read-only): active-only for non-admin/boss
+        app.MapGet("/api/festivals/for-cashier", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth) =>
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
             var tenantId = op.TenantId;
 
+            var isAdmin = op.Role == OperatorRole.Admin || op.Role == OperatorRole.SuperAdmin;
+            var isBoss = op.Role == OperatorRole.JefeOperativo || op.Role == OperatorRole.JefeDeBarra || op.Role == OperatorRole.JefeDeStand;
+
+            var query = db.Festivals.Where(f => f.TenantId == tenantId);
+            if (!isAdmin && !isBoss)
+                query = query.Where(f => f.IsActive);
+
+            var list = await query
+                .OrderByDescending(f => f.Id)
+                .Select(f => new
+                {
+                    f.Id,
+                    f.Name,
+                    f.StartDate,
+                    f.EndDate,
+                    f.IsActive
+                })
+                .ToListAsync();
+
+            return Results.Ok(list);
+        });
+
+        app.MapPost("/api/festivals", async Task<IResult> (FestivalCreateRequest dto, CashlessContext db, HttpContext http, IAuthService auth) =>
+        {
+            var (op, fail) = await RequireAdmin(db, http, auth);
+            if (fail is not null) return fail;
+            var tenantId = op!.TenantId;
+
             if (string.IsNullOrWhiteSpace(dto.Name))
                 return Results.BadRequest(new { message = "Nombre requerido" });
+
+            if (dto.StartDate == default || dto.EndDate == default)
+                return Results.BadRequest(new { message = "Fechas inválidas" });
 
             if (dto.EndDate < dto.StartDate)
                 return Results.BadRequest(new { message = "Rango de fechas inválido" });
@@ -192,9 +233,9 @@ public static class AdminEndpoints
 
         app.MapPost("/api/festivals/{id:int}/activate", async Task<IResult> (int id, CashlessContext db, HttpContext http, IAuthService auth) =>
         {
-            var op = await auth.AuthenticateAsync(db, http.Request);
-            if (op is null) return Results.Unauthorized();
-            var tenantId = op.TenantId;
+            var (op, fail) = await RequireAdmin(db, http, auth);
+            if (fail is not null) return fail;
+            var tenantId = op!.TenantId;
 
             var target = await db.Festivals.FirstOrDefaultAsync(f => f.Id == id && f.TenantId == tenantId);
             if (target is null) return Results.NotFound(new { message = "Festival no existe" });
@@ -208,11 +249,53 @@ public static class AdminEndpoints
             return Results.Ok(new { ok = true });
         });
 
+        app.MapPut("/api/festivals/{id:int}", async Task<IResult> (int id, FestivalCreateRequest dto, CashlessContext db, HttpContext http, IAuthService auth) =>
+        {
+            var (op, fail) = await RequireAdmin(db, http, auth);
+            if (fail is not null) return fail;
+            var tenantId = op!.TenantId;
+
+            var target = await db.Festivals.FirstOrDefaultAsync(f => f.Id == id && f.TenantId == tenantId);
+            if (target is null) return Results.NotFound(new { message = "Festival no existe" });
+
+            if (string.IsNullOrWhiteSpace(dto.Name))
+                return Results.BadRequest(new { message = "Nombre requerido" });
+
+            if (dto.StartDate == default || dto.EndDate == default)
+                return Results.BadRequest(new { message = "Fechas inválidas" });
+
+            if (dto.EndDate < dto.StartDate)
+                return Results.BadRequest(new { message = "Rango de fechas inválido" });
+
+            if (dto.IsActive)
+            {
+                var actives = await db.Festivals.Where(f => f.TenantId == tenantId && f.IsActive && f.Id != id).ToListAsync();
+                foreach (var f in actives) f.IsActive = false;
+            }
+
+            target.Name = dto.Name.Trim();
+            target.StartDate = dto.StartDate;
+            target.EndDate = dto.EndDate;
+            if (dto.IsActive) target.IsActive = true;
+
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new
+            {
+                target.Id,
+                target.Name,
+                target.StartDate,
+                target.EndDate,
+                target.IsActive
+            });
+        });
+
         // ===================== AREAS (BARRAS) - PROTEGIDO (Type string + CustomType) =====================
         app.MapGet("/api/areas", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth) =>
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            if (op.Role == OperatorRole.Cajero) return Forbidden("El rol Cajero no puede ver catalogo de areas.");
             var tenantId = op.TenantId;
 
             var areas = await db.Areas
@@ -316,6 +399,7 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            if (op.Role == OperatorRole.Cajero) return Forbidden("El rol Cajero no puede ver catalogo de productos.");
             var tenantId = op.TenantId;
 
             var list = await db.Products
@@ -421,6 +505,7 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
+            if (op.Role == OperatorRole.Cajero) return Forbidden("El rol Cajero no puede ver menus de catalogo.");
             var tenantId = op.TenantId;
 
             var area = await db.Areas.FirstOrDefaultAsync(a => a.Id == areaId && a.TenantId == tenantId);
@@ -686,13 +771,15 @@ public static class AdminEndpoints
             return Results.NoContent();
         });
         // ===================== PROTEGIDO: Cards lookup =====================
-        app.MapGet("/cards/{uid}", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, string uid) =>
+        async Task<IResult> CardLookup(CashlessContext db, HttpContext http, IAuthService auth, string uid)
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
             var tenantId = op.TenantId;
 
-            var clean = (uid ?? "").Trim().ToUpperInvariant();
+            var clean = NormalizeUid(uid);
+            if (string.IsNullOrWhiteSpace(clean))
+                return Results.BadRequest(new { message = "UID requerido" });
 
             var card = await db.Cards
                 .Include(c => c.User)
@@ -708,7 +795,10 @@ public static class AdminEndpoints
                 userName = card.User.Name,
                 balance = card.User.Balance
             });
-        });
+        }
+
+        app.MapGet("/cards/{uid}", CardLookup);
+        app.MapGet("/api/cards/{uid}", CardLookup);
 
         // ===================== PROTEGIDO: Users + assign card =====================
         app.MapGet("/users", GetUsers);
@@ -720,28 +810,43 @@ public static class AdminEndpoints
         app.MapGet("/api/users/count", GetUsersCount);
         app.MapGet("/api/users/summary", GetUsersSummary);
 
-        app.MapPost("/assign-card", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, AssignCardRequest req) =>
+        async Task<IResult> AssignCard(CashlessContext db, HttpContext http, IAuthService auth, AssignCardRequest req)
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
             var tenantId = op.TenantId;
 
-            if (req.UserId <= 0) return Results.BadRequest(new { message = "UserId inválido" });
-            if (string.IsNullOrWhiteSpace(req.Uid)) return Results.BadRequest(new { message = "UID requerido" });
-
-            var uid = req.Uid.Trim().ToUpperInvariant();
+            if (req.UserId <= 0) return Results.BadRequest(new { message = "UserId invalido" });
+            var uid = NormalizeUid(req.Uid);
+            if (string.IsNullOrWhiteSpace(uid)) return Results.BadRequest(new { message = "UID requerido" });
 
             var user = await db.Users.FirstOrDefaultAsync(u => u.Id == req.UserId && u.TenantId == tenantId);
             if (user is null) return Results.NotFound(new { message = "Usuario no existe" });
 
-            var cardExists = await db.Cards.AnyAsync(c => c.Uid == uid);
-            if (cardExists) return Results.BadRequest(new { message = "Pulsera ya asignada" });
+            var existingByUid = await db.Cards
+                .Include(c => c.User)
+                .FirstOrDefaultAsync(c => c.Uid == uid && c.TenantId == tenantId);
+            if (existingByUid is not null)
+            {
+                if (existingByUid.UserId == user.Id)
+                    return Results.Ok(new { ok = true, userId = user.Id, uid });
+
+                var owner = existingByUid.User?.Name ?? $"UserId {existingByUid.UserId}";
+                return Results.Json(new { message = $"UID ya asignado a {owner}" }, statusCode: 409);
+            }
+
+            var existingForUser = await db.Cards.FirstOrDefaultAsync(c => c.UserId == user.Id && c.TenantId == tenantId);
+            if (existingForUser is not null)
+                return Results.Json(new { message = "El usuario ya tiene tarjeta asignada. Usa /api/reassign-card para reemplazar." }, statusCode: 409);
 
             db.Cards.Add(new Card { Uid = uid, UserId = user.Id, TenantId = tenantId });
             await db.SaveChangesAsync();
 
-            return Results.Ok(new { ok = true });
-        });
+            return Results.Ok(new { ok = true, userId = user.Id, uid });
+        }
+
+        app.MapPost("/assign-card", AssignCard);
+        app.MapPost("/api/assign-card", AssignCard);
 
         app.MapGet("/transactions/{uid}", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, string uid) =>
         {
@@ -779,22 +884,27 @@ public static class AdminEndpoints
         app.MapPut("/users/{id}/contact", UpdateUserContact);
         app.MapPut("/api/users/{id}/contact", UpdateUserContact);
 
-        app.MapPost("/reassign-card", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, ReassignCardRequest req) =>
+        async Task<IResult> ReassignCard(CashlessContext db, HttpContext http, IAuthService auth, ReassignCardRequest req)
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
             var tenantId = op.TenantId;
 
-            if (req.UserId <= 0) return Results.BadRequest(new { message = "UserId inválido" });
-            if (string.IsNullOrWhiteSpace(req.Uid)) return Results.BadRequest(new { message = "UID requerido" });
-
-            var uid = req.Uid.Trim().ToUpperInvariant();
+            if (req.UserId <= 0) return Results.BadRequest(new { message = "UserId invalido" });
+            var uid = NormalizeUid(req.Uid);
+            if (string.IsNullOrWhiteSpace(uid)) return Results.BadRequest(new { message = "UID requerido" });
 
             var user = await db.Users.FirstOrDefaultAsync(u => u.Id == req.UserId && u.TenantId == tenantId);
             if (user is null) return Results.NotFound(new { message = "Usuario no existe" });
 
-            var uidExists = await db.Cards.AnyAsync(c => c.Uid == uid);
-            if (uidExists) return Results.BadRequest(new { message = "Pulsera ya asignada" });
+            var existingByUid = await db.Cards
+                .Include(c => c.User)
+                .FirstOrDefaultAsync(c => c.Uid == uid && c.TenantId == tenantId);
+            if (existingByUid is not null && existingByUid.UserId != user.Id)
+            {
+                var owner = existingByUid.User?.Name ?? $"UserId {existingByUid.UserId}";
+                return Results.Json(new { message = $"UID ya asignado a {owner}" }, statusCode: 409);
+            }
 
             var card = await db.Cards.FirstOrDefaultAsync(c => c.UserId == user.Id && c.TenantId == tenantId);
             string? oldUid = null;
@@ -808,8 +918,11 @@ public static class AdminEndpoints
             }
 
             await db.SaveChangesAsync();
-            return Results.Ok(new { ok = true, oldUid });
-        });
+            return Results.Ok(new { ok = true, oldUid, userId = user.Id, uid });
+        }
+
+        app.MapPost("/reassign-card", ReassignCard);
+        app.MapPost("/api/reassign-card", ReassignCard);
 
         // ===================== PERMISSIONS (roles -> permisos) - PROTEGIDO =====================
         // Nota: por ahora es RBAC simple (por rol). Más adelante podemos meter overrides por operador en BD.
@@ -819,7 +932,7 @@ public static class AdminEndpoints
             if (fail is not null) return fail;
 
             // Respuesta en el formato que permisos.js espera:
-            var roles = new[] { "SuperAdmin","Admin","JefeOperativo","JefeDeBarra","JefeDeStand" };
+            var roles = new[] { "SuperAdmin","Admin","JefeOperativo","JefeDeBarra","JefeDeStand","Cajero" };
 
             var permissions = new[]
             {
@@ -862,6 +975,11 @@ public static class AdminEndpoints
                 ["JefeDeStand"] = new() {
                     ["dashboard_view"]=true, ["pos_use"]=true, ["topup"]=false, ["charge"]=true,
                     ["users_manage"]=false, ["areas_manage"]=false, ["products_manage"]=false, ["menus_manage"]=false,
+                    ["operators_manage"]=false, ["reports_view"]=false, ["permissions_view"]=false, ["permissions_manage"]=false
+                },
+                ["Cajero"] = new() {
+                    ["dashboard_view"]=true, ["pos_use"]=false, ["topup"]=true, ["charge"]=false,
+                    ["users_manage"]=true, ["areas_manage"]=false, ["products_manage"]=false, ["menus_manage"]=false,
                     ["operators_manage"]=false, ["reports_view"]=false, ["permissions_view"]=false, ["permissions_manage"]=false
                 },
             };
@@ -907,8 +1025,9 @@ public static class AdminEndpoints
         if (fail is not null) return fail;
         var tenantId = op!.TenantId;
 
-        var users = await db.Users
-            .Where(u => u.TenantId == tenantId)
+        var query = db.Users.Where(u => u.TenantId == tenantId);
+
+        var users = await query
             .OrderByDescending(u => u.Id)
             .Select(u => new
             {
@@ -934,6 +1053,82 @@ public static class AdminEndpoints
         var (op, fail) = await RequireAdmin(db, http, auth);
         if (fail is not null) return fail;
         var tenantId = op!.TenantId;
+
+        var wantsOperator = !string.IsNullOrWhiteSpace(req.Username)
+            || !string.IsNullOrWhiteSpace(req.Pin)
+            || !string.IsNullOrWhiteSpace(req.Role)
+            || !string.IsNullOrWhiteSpace(req.DisplayName);
+
+        if (wantsOperator)
+        {
+            if (op.Role != OperatorRole.Admin && op.Role != OperatorRole.SuperAdmin)
+                return Forbidden("Solo Admin/SuperAdmin pueden crear usuarios de sistema.");
+
+            var username = (req.Username ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(username))
+                return Results.BadRequest(new { message = "Username requerido" });
+            if (username.Any(char.IsWhiteSpace))
+                return Results.BadRequest(new { message = "Username no debe contener espacios." });
+
+            var displayName = (req.DisplayName ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(displayName))
+                displayName = username;
+
+            if (!string.Equals(username, displayName, StringComparison.OrdinalIgnoreCase))
+                return Results.BadRequest(new { message = "displayName debe coincidir con username (compatibilidad)." });
+
+            var pin = (req.Pin ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(pin) || pin.Length < 4 || pin.Length > 6 || !pin.All(char.IsDigit))
+                return Results.BadRequest(new { message = "PIN requerido (4-6 dígitos)." });
+
+            var roleRaw = (req.Role ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(roleRaw))
+                return Results.BadRequest(new { message = "Rol requerido." });
+
+            // Compat: si llega "JefeDeCaja", mapear a JefeOperativo
+            if (string.Equals(roleRaw, "JefeDeCaja", StringComparison.OrdinalIgnoreCase))
+                roleRaw = OperatorRole.JefeOperativo.ToString();
+
+            if (!Enum.TryParse<OperatorRole>(roleRaw, true, out var parsedRole))
+                return Results.BadRequest(new { message = "Rol inválido." });
+
+            if (parsedRole == OperatorRole.SuperAdmin && op.Role != OperatorRole.SuperAdmin)
+                return Forbidden("Solo SuperAdmin puede crear otro SuperAdmin.");
+
+            var exists = await db.Operators.AnyAsync(o =>
+                o.TenantId == tenantId && o.Name != null && o.Name.Trim().ToLower() == username.ToLower());
+            if (exists)
+                return Results.Json(new { message = "Username ya existe." }, statusCode: 409);
+
+            int areaId = await db.Areas
+                .Where(a => a.TenantId == tenantId)
+                .OrderBy(a => a.Id)
+                .Select(a => a.Id)
+                .FirstOrDefaultAsync();
+            if (areaId <= 0) return Results.BadRequest(new { message = "No hay Areas creadas para asignar." });
+
+            var entity = new Operator
+            {
+                Name = displayName,
+                Role = parsedRole,
+                AreaId = areaId,
+                PinHash = auth.HashPin(pin),
+                IsActive = req.IsActive ?? true,
+                TenantId = tenantId
+            };
+
+            db.Operators.Add(entity);
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new
+            {
+                id = entity.Id,
+                username,
+                displayName = entity.Name,
+                role = entity.Role.ToString(),
+                isActive = entity.IsActive
+            });
+        }
 
         if (string.IsNullOrWhiteSpace(req.Name))
             return Results.BadRequest(new { message = "Nombre requerido" });
@@ -1000,9 +1195,8 @@ public static class AdminEndpoints
         if (fail is not null) return fail;
         var tenantId = op!.TenantId;
 
-        var count = await db.Users
-            .Where(u => u.TenantId == tenantId)
-            .CountAsync();
+        var query = db.Users.Where(u => u.TenantId == tenantId);
+        var count = await query.CountAsync();
 
         return Results.Ok(new { count });
     }
@@ -1014,7 +1208,6 @@ public static class AdminEndpoints
         var tenantId = op!.TenantId;
 
         var query = db.Users.Where(u => u.TenantId == tenantId);
-
         var count = await query.CountAsync();
         var totalBalance = await query.Select(u => u.Balance).DefaultIfEmpty(0m).SumAsync();
         var totalSpent = await query.Select(u => u.TotalSpent).DefaultIfEmpty(0m).SumAsync();
@@ -1026,6 +1219,12 @@ public static class AdminEndpoints
             totalSpent
         });
     }
+
+    private static string NormalizeUid(string? uid)
+        => string.Concat((uid ?? string.Empty)
+            .Trim()
+            .ToUpperInvariant()
+            .Where(c => !char.IsWhiteSpace(c)));
 
     private static bool CanManageOperators(Operator op)
         => op.Role == OperatorRole.SuperAdmin || op.Role == OperatorRole.Admin;

@@ -1,4 +1,4 @@
-namespace Cashless.Api.Models;
+﻿namespace Cashless.Api.Models;
 
 public class Festival
 {
@@ -15,5 +15,6 @@ public class Festival
 
     public bool IsActive { get; set; }
 
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; } = Cashless.Api.Services.Infra.DateTimeProvider.NowMexico();
 }
+

@@ -1,4 +1,4 @@
-namespace Cashless.Api.Models;
+﻿namespace Cashless.Api.Models;
 
 public class Area
 {
@@ -10,7 +10,8 @@ public class Area
     public string? CustomType { get; set; }
     public AreaType Type { get; set; } = AreaType.General;
     public bool IsActive { get; set; } = true;
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; } = Cashless.Api.Services.Infra.DateTimeProvider.NowMexico();
 
     public ICollection<Operator> Operators { get; set; } = new List<Operator>();
 }
+

@@ -24,6 +24,9 @@ public class CashlessContext : DbContext
 
     public DbSet<Sale> Sales => Set<Sale>();
     public DbSet<SaleItem> SaleItems => Set<SaleItem>();
+    public DbSet<Shift> Shifts => Set<Shift>();
+    public DbSet<CardAudit> CardAudits => Set<CardAudit>();
+    public DbSet<Recharge> Recharges => Set<Recharge>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -90,5 +93,47 @@ public class CashlessContext : DbContext
             .WithOne(i => i.Sale)
             .HasForeignKey(i => i.SaleId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Shift>()
+            .HasIndex(s => new { s.TenantId, s.CashierId, s.Status });
+
+        modelBuilder.Entity<CardAudit>()
+            .HasIndex(a => new { a.TenantId, a.ClientId, a.CreatedAt });
+
+        modelBuilder.Entity<Recharge>()
+            .Property(r => r.Amount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<Recharge>()
+            .Property(r => r.CardUid)
+            .HasMaxLength(100)
+            .IsRequired();
+
+        modelBuilder.Entity<Recharge>()
+            .Property(r => r.ReaderId)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<Recharge>()
+            .Property(r => r.ClientId)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<Recharge>()
+            .Property(r => r.PaymentMethod)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<Recharge>()
+            .Property(r => r.PaymentDetail)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<Recharge>()
+            .Property(r => r.Comment)
+            .HasMaxLength(500);
+
+        modelBuilder.Entity<Recharge>()
+            .HasIndex(r => new { r.TenantId, r.CashierId, r.ShiftId, r.CreatedAt });
+
+        modelBuilder.Entity<Recharge>()
+            .HasIndex(r => new { r.TenantId, r.CardUid, r.CreatedAt });
     }
 }

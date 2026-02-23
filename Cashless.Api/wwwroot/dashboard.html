@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dashboard · Cashless</title>
+  <title>Dashboard - Cashless</title>
 
   <script defer src="common.js"></script>
   <script defer src="dashboard.js"></script>
@@ -42,9 +42,6 @@
     .title{font-size:28px;font-weight:1000;letter-spacing:.2px}
     .subtitle{color:var(--muted);font-size:13px}
 
-    .nav{
-      display:flex;gap:8px;flex-wrap:wrap;align-items:center
-    }
     .btn{
       border:0;cursor:pointer;font-weight:800;padding:10px 14px;border-radius:12px;
       background:linear-gradient(135deg,var(--accent),var(--accent-2));
@@ -90,78 +87,60 @@
     .muted{color:var(--muted);font-size:12px}
     .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 
-    .pill{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:800}
-    .pill.ok{background:rgba(53,255,122,12);border:1px solid rgba(53,255,122,25);color:#b8ffd2}
-    .pill.bad{background:rgba(255,90,90,12);border:1px solid rgba(255,90,90,25);color:#ffd1d1}
-    .pill.warn{background:rgba(255,200,60,12);border:1px solid rgba(255,200,60,25);color:#ffe6b0}
-
-    .status-list{display:grid;gap:10px}
-    .status-item{display:flex;justify-content:space-between;align-items:center;gap:10px}
-    .status-item .name{font-weight:800}
-    .status-item .detail{color:var(--muted);font-size:12px}
-
     .festival-box{display:flex;flex-direction:column;gap:6px}
     .festival-active{font-weight:800}
     .footer-actions{display:flex;gap:8px;flex-wrap:wrap}
   </style>
+  <link rel="icon" type="image/png" href="/assets/favicon.png">
+  <link rel="stylesheet" href="/site.css">
 </head>
 
 <body>
   <div class="wrap">
+    <div id="appMenu" class="row" style="margin-bottom:12px"></div>
     <div class="top">
       <div class="brand">
         <div class="title">Dashboard</div>
-        <div class="subtitle" id="who">—</div>
+        <div class="subtitle" id="who">-</div>
       </div>
 
       <div class="row">
         <div class="festival-box card" style="padding:12px 14px;">
           <div class="muted">Festival activo</div>
-          <div class="festival-active" id="festivalActiveName">—</div>
+          <div class="festival-active" id="festivalActiveName">-</div>
           <div class="row" style="margin-top:6px">
             <select id="festivalSelect" class="field"></select>
             <button id="btnFestivalActivate" class="btn alt small">Activar</button>
           </div>
         </div>
-        <button id="btnLogout" class="btn danger">Cerrar sesión</button>
+        <button id="btnLogout" class="btn danger">Cerrar sesion</button>
       </div>
-    </div>
-
-    <div class="nav" style="margin-top:14px">
-      <a class="btn alt" href="dashboard.html">Dashboard</a>
-      <a class="btn alt" href="barra.html">POS</a>
-      <a class="btn alt" href="barras.html">Barras</a>
-      <a class="btn alt" href="menus.html">Menús</a>
-      <a class="btn alt" href="operators.html">Colaboradores</a>
-      <a class="btn alt" href="usuarios.html">Usuarios</a>
-      <a class="btn alt" href="reports.html">Reportes</a>
-      <a class="btn alt" href="admin.html">Admin</a>
     </div>
 
     <div class="grid-kpi">
       <div class="card kpi">
         <div class="label">Operador</div>
-        <div class="value" id="kpiOp">—</div>
-        <div class="note">Rol: <span class="mono" id="kpiRole">—</span></div>
+        <div class="value" id="kpiOp">-</div>
+        <div class="note">Rol: <span class="mono" id="kpiRole">-</span></div>
       </div>
       <div class="card kpi">
         <div class="label">Barras activas</div>
-        <div class="value" id="kpiAreas">—</div>
-        <div class="note">Total barras: <span id="kpiAreasTotal">—</span></div>
+        <div class="value" id="kpiAreas">-</div>
+        <div class="note">Total barras: <span id="kpiAreasTotal">-</span></div>
       </div>
       <div class="card kpi">
         <div class="label">Usuarios</div>
-        <div class="value" id="kpiUsers">—</div>
-        <div class="note">Últimos 10 (lista)</div>
+        <div class="value" id="kpiUsers">-</div>
+        <div class="note">Ultimos 10 (lista)</div>
       </div>
       <div class="card kpi">
         <div class="label">Total vendido</div>
-        <div class="value" id="kpiSold">—</div>
+        <div class="value" id="kpiSold">-</div>
         <div class="note">Suma de <span class="mono">TotalSpent</span></div>
       </div>
       <div class="card kpi">
-        <div class="label">Último UID</div>
-        <div class="value mono" id="kpiNfc">—</div>
+        <div class="label">Ultimo UID</div>
+        <div class="value mono" id="kpiNfc">-</div>
         <div class="note">Lectura NFC</div>
       </div>
     </div>
@@ -170,32 +149,36 @@
       <div class="card">
         <div class="split">
           <div>
-            <div style="font-weight:1000">Acciones rápidas</div>
+            <div style="font-weight:1000">Acciones rapidas</div>
             <div class="muted">Todo lo importante en un clic.</div>
           </div>
           <div class="footer-actions">
             <button id="btnReload" class="btn alt small">Recargar</button>
-            <a class="btn alt small" href="barra.html">Cobrar (POS)</a>
+            <a class="btn alt small" id="btnQuickPos" href="pos.html">Cobrar (POS)</a>
+            <a class="btn alt small" id="btnQuickCaja" href="/dashboard-caja/reportes.html">Caja / Cortes</a>
           </div>
         </div>
 
         <hr>
 
         <div class="row">
-          <a class="btn" href="barras.html">Barras</a>
-          <a class="btn" href="menus.html">Menús</a>
-          <a class="btn" href="operators.html">Colaboradores</a>
-          <a class="btn" href="usuarios.html">Usuarios</a>
-          <a class="btn" href="admin.html">Asignar pulseras</a>
-          <a class="btn" href="reports.html">Reportes</a>
+          <a class="btn" id="btnPos" href="pos.html">POS / Ventas</a>
+          <a class="btn" id="btnCaja" href="/dashboard-caja/reportes.html">Caja / Cortes</a>
+          <a class="btn" id="btnBarras" href="barras.html">Barras</a>
+          <a class="btn" id="btnMenus" href="menus.html">Menus</a>
+          <a class="btn" id="btnReports" href="reports.html">Reportes</a>
+          <a class="btn" id="btnRecargas" href="recargas.html">Recargas</a>
+          <a class="btn" id="btnOperators" href="operators.html">Colaboradores</a>
+          <a class="btn" id="btnUsers" href="usuarios.html">Usuarios</a>
+          <a class="btn" id="btnAdminAssign" href="usuarios.html">Asignar pulseras</a>
         </div>
 
         <div class="muted" style="margin-top:12px" id="msg"></div>
 
         <hr>
 
-        <div style="font-weight:1000">Usuarios recientes (últimos 10)</div>
-        <div class="muted">Para revisar rápido si está guardando y acumulando gastado.</div>
+        <div style="font-weight:1000">Usuarios recientes (ultimos 10)</div>
+        <div class="muted">Para revisar rapido si esta guardando y acumulando gastado.</div>
 
         <div style="overflow:auto;margin-top:10px">
           <table>
@@ -213,63 +196,13 @@
       </div>
 
       <div class="card">
-        <div style="font-weight:1000">Estado del sistema</div>
-        <div class="muted">Diagnóstico rápido: auth, endpoints y NFC.</div>
-
-        <hr>
-
-        <div class="status-list">
-          <div class="status-item">
-            <div>
-              <div class="name">Sesión</div>
-              <div class="detail" id="stSessionMsg">—</div>
-            </div>
-            <div id="stSession" class="pill bad">—</div>
-          </div>
-          <div class="status-item">
-            <div>
-              <div class="name">/api/areas</div>
-              <div class="detail" id="stAreasMsg">—</div>
-            </div>
-            <div id="stAreas" class="pill bad">—</div>
-          </div>
-          <div class="status-item">
-            <div>
-              <div class="name">/api/users o /users</div>
-              <div class="detail" id="stUsersMsg">—</div>
-            </div>
-            <div id="stUsers" class="pill bad">—</div>
-          </div>
-          <div class="status-item">
-            <div>
-              <div class="name">/api/last-uid</div>
-              <div class="detail" id="stUidMsg">—</div>
-            </div>
-            <div id="stUid" class="pill bad">—</div>
-          </div>
-          <div class="status-item">
-            <div>
-              <div class="name">/api/festivals</div>
-              <div class="detail" id="stFestivalsMsg">—</div>
-            </div>
-            <div id="stFestivals" class="pill bad">—</div>
-          </div>
-        </div>
-
-        <hr>
-
-        <div class="muted">Último UID:</div>
-        <div class="mono" id="lastUid" style="font-size:18px;font-weight:900">—</div>
-
-        <div class="row" style="margin-top:12px">
-          <button id="btnTestUid" class="btn alt small">Probar NFC ahora</button>
-        </div>
-
-        <div class="muted" style="margin-top:10px">
-          Si el UID no cambia, el lector no está posteando a <span class="mono">/api/uid</span>.
-        </div>
+        <div style="font-weight:1000">Ultimo UID</div>
+        <div class="muted">Lectura NFC</div>
+        <div class="mono" id="lastUid" style="font-size:18px;font-weight:900;margin-top:10px">-</div>
       </div>
     </div>
   </div>
 </body>
 </html>
+
+

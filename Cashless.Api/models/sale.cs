@@ -1,4 +1,4 @@
-namespace Cashless.Api.Models;
+﻿namespace Cashless.Api.Models;
 
 public class Sale
 {
@@ -16,7 +16,7 @@ public class Sale
 
     public string? Note { get; set; }
 
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; } = Cashless.Api.Services.Infra.DateTimeProvider.NowMexico();
 
     public ICollection<SaleItem> Items { get; set; } = new List<SaleItem>();
 
@@ -24,7 +24,8 @@ public class Sale
 public decimal TipAmount { get; set; }
 public decimal DonationAmount { get; set; }
 public int? DonationProjectId { get; set; } // opcional
-public int? AreaId { get; set; }            // para reportes por barra/área
-public int? OperatorId { get; set; }        // quién cobró
+public int? AreaId { get; set; }            // para reportes por barra/Ã¡rea
+public int? OperatorId { get; set; }        // quiÃ©n cobrÃ³
 
 }
+

@@ -1,4 +1,4 @@
-namespace Cashless.Api.Models;
+﻿namespace Cashless.Api.Models;
 
 public class Product
 {
@@ -15,5 +15,6 @@ public class Product
 
     public bool IsActive { get; set; } = true;
 
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; } = Cashless.Api.Services.Infra.DateTimeProvider.NowMexico();
 }
+

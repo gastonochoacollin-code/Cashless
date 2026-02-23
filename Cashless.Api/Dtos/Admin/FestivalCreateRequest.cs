@@ -4,5 +4,6 @@ public sealed record FestivalCreateRequest(
     string Name,
     DateTime StartDate,
     DateTime EndDate,
-    bool IsActive
+    bool IsActive,
+    string? Location = null
 );

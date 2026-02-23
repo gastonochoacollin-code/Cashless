@@ -7,7 +7,9 @@ public enum OperatorRole
     JefeOperativo = 3,
     JefeDeBarra = 4,
     JefeDeStand = 5,
-    Mesero = 6,
-    Bartender =7
+    Cajero = 6,
+    Mesero = 7,
+    Bartender = 8,
+    Vendedor = 9
 
 }

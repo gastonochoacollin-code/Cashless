@@ -8,11 +8,13 @@ function getQueryParam(name){
   return u.searchParams.get(name);
 }
 
+const TERMINAL_KEY = "cashless.terminalId";
+
 function loadTerminalId(){
   const fromQuery = (getQueryParam("terminalId") || "").trim();
   if(fromQuery) return fromQuery;
 
-  const stored = (localStorage.getItem("terminalId") || "").trim();
+  const stored = (sessionStorage.getItem(TERMINAL_KEY) || "").trim();
   if(stored) return stored;
 
   return "BARRA-01";
@@ -20,12 +22,21 @@ function loadTerminalId(){
 
 function setTerminalId(newId){
   const clean = (newId || "").trim() || "BARRA-01";
-  localStorage.setItem("terminalId", clean);
+  sessionStorage.setItem(TERMINAL_KEY, clean);
   state.terminalId = clean;
 
-  const input = $("terminalIdInput");
-  const label = $("terminalIdLabel");
-  if(input) input.value = clean;
+  const select = $("terminalSelect");
+  const label = $("terminalLabel");
+  if(select){
+    let opt = Array.from(select.options).find(o => o.value === clean);
+    if(!opt){
+      opt = document.createElement("option");
+      opt.value = clean;
+      opt.textContent = clean;
+      select.appendChild(opt);
+    }
+    select.value = clean;
+  }
   if(label) label.textContent = clean;
 }
 
@@ -37,15 +48,35 @@ const state = {
   cart: new Map(),
   lastUid: "",
   lastUidTimer: null,
-  terminalId: ""
+  terminalId: "",
+  card: null,
+  beforeBalance: null,
+  afterBalance: null
 };
 
 function setSessionInfo(){
   const name = session?.name || session?.operatorName || "Operador";
   const role = session?.role || session?.Role || "";
-  $("sessionInfo").textContent = `Sesión: ${name}${role ? " · " + role : ""}`;
+  $("sessionInfo").textContent = `Sesion: ${name}${role ? " � " + role : ""}`;
 }
 
+function initTerminalSelect(){
+  const select = $("terminalSelect");
+  if(!select) return;
+  const defaults = ["BARRA-01", "BARRA-02", "BARRA-03", "CAJA-01", "CAJA-02"];
+  select.innerHTML = "";
+  for(const t of defaults){
+    const opt = document.createElement("option");
+    opt.value = t;
+    opt.textContent = t;
+    select.appendChild(opt);
+  }
+  const current = loadTerminalId();
+  setTerminalId(current);
+  select.addEventListener("change", () => {
+    setTerminalId(select.value);
+  });
+}
 function money(n){
   const v = Number(n || 0);
   return "$" + v.toFixed(2);
@@ -96,7 +127,7 @@ function renderProducts(){
     card.innerHTML = `
       <div>
         <b>${p.name}</b><br/>
-        <small>${p.category || "—"}</small>
+        <small>${p.category || "-"}</small>
       </div>
       <div style="text-align:right">
         <div class="mono">${money(p.price)}</div>
@@ -198,6 +229,104 @@ function setPayMsg(text, kind){
   el.className = kind ? (kind === "ok" ? "success" : "error") : "muted";
   el.textContent = text || "";
 }
+function uidShort(uid){
+  const clean = normalizeUid(uid);
+  if(clean.length <= 6) return clean || "-";
+  return `${clean.slice(0, 4)}...${clean.slice(-2)}`;
+}
+
+function errLabel(e){
+  const status = Number(e?.status || 0) || 0;
+  const msg = String(e?.message || "Error inesperado");
+  const url = String(e?.url || `${API_BASE}${window.location.pathname}`);
+  return `ERROR ${status}: ${msg} (URL: ${url})`;
+}
+async function readErrorMessage(res){
+  const text = await res.text().catch(() => "");
+  if(!text) return res.statusText || "Error";
+  try{
+    const data = JSON.parse(text);
+    return data?.message || text;
+  }catch{
+    return text;
+  }
+}
+
+function setPayEnabled(ok){
+  const btn = $("btnPay");
+  if(btn) btn.disabled = !ok;
+}
+
+function setCardInfo({ statusText = "-", holder = "-", before = null, after = null } = {}){
+  const statusEl = $("cardStatusPill");
+  const holderEl = $("cardHolderName");
+  const beforeEl = $("cardBalanceBefore");
+  const afterEl = $("cardBalanceAfter");
+  if(statusEl) statusEl.textContent = statusText || "-";
+  if(holderEl) holderEl.textContent = holder || "-";
+  if(beforeEl) beforeEl.textContent = (before === null || before === undefined) ? "$0.00" : money(before);
+  if(afterEl) afterEl.textContent = (after === null || after === undefined) ? "-" : money(after);
+}
+
+async function getCardByUidWithFallback(uid){
+  const clean = normalizeUid(uid);
+  if(!clean) return { ok: false, status: 400, message: "UID requerido", url: "" };
+
+  const routes = [`/api/cards/${encodeURIComponent(clean)}`, `/cards/${encodeURIComponent(clean)}`];
+  for(const path of routes){
+    try{
+      const data = await apiJson(path, { method: "GET" });
+      return { ok: true, card: data, url: `${API_BASE}${path}` };
+    }catch(e){
+      if(Number(e?.status || 0) === 404) continue;
+      return { ok: false, status: Number(e?.status || 0), message: e?.message, url: e?.url || `${API_BASE}${path}` };
+    }
+  }
+  return { ok: false, status: 404, message: "Tarjeta no asignada", url: `${API_BASE}/api/cards/${encodeURIComponent(clean)}` };
+}
+
+async function lookupAndRenderCard(uid){
+  const clean = normalizeUid(uid);
+  if(!clean){
+    state.card = null;
+    state.beforeBalance = null;
+    state.afterBalance = null;
+    setCardInfo({ statusText: "-", holder: "-", before: null, after: null });
+    setPayEnabled(false);
+    return;
+  }
+
+  const hdr = apiHeaders();
+  console.log("POS_UID_LOOKUP", {
+    url: `${API_BASE}/api/cards/${encodeURIComponent(clean)}`,
+    hasTenant: !!hdr["X-Tenant-Id"],
+    hasFestival: !!hdr["X-Festival-Id"],
+    hasAuth: !!hdr["Authorization"],
+    hasOpToken: !!hdr["X-Operator-Token"],
+    terminalId: getTerminalId(),
+    uidShort: uidShort(clean)
+  });
+
+  const res = await getCardByUidWithFallback(clean);
+  if(!res.ok){
+    state.card = null;
+    state.beforeBalance = null;
+    state.afterBalance = null;
+    setCardInfo({ statusText: res.status === 404 ? "Tarjeta no asignada" : "Error", holder: "-", before: null, after: null });
+    setPayEnabled(false);
+    setPayMsg(errLabel(res), "err");
+    return;
+  }
+
+  const card = res.card || {};
+  const holder = card.userName || card.name || card.user?.name || "-";
+  const balance = Number(card.balance ?? card.user?.balance ?? 0);
+  state.card = card;
+  state.beforeBalance = balance;
+  state.afterBalance = null;
+  setCardInfo({ statusText: "Tarjeta asignada", holder, before: balance, after: null });
+  setPayEnabled(true);
+}
 
 async function loadAreas(){
   const list = await apiJson("/api/areas");
@@ -212,7 +341,7 @@ async function loadProductsForArea(areaId){
   state.menuId = null;
   state.products = [];
 
-  // Intento 1: /api/menus?areaId= (si no existe, ajustar aquí)
+  // Intento 1: /api/menus?areaId= (si no existe, ajustar aqui)
   let menu = null;
   try{
     const res = await apiFetch(`/api/menus?areaId=${encodeURIComponent(areaId)}`, { method:"GET" });
@@ -254,50 +383,53 @@ async function loadProductsForArea(areaId){
 
 async function useLastUid(){
   try{
-    const tid = state.terminalId || "BARRA-01";
-    const res = await apiFetch(`/api/last-uid?terminalId=${encodeURIComponent(tid)}`, { method:"GET" });
-    if(res.status === 401){
-      clearSession();
-      window.location.href = "/login.html";
-      return;
-    }
-    const data = await res.json();
-    const uid = String(data?.uid || "").trim();
-    $("uidInput").value = uid;
+    const tid = state.terminalId || getTerminalId();
+    const uid = await apiGetLastUid(tid);
+    $("uidInput").value = uid || "";
+    await lookupAndRenderCard(uid);
   }catch(e){
-    setPayMsg("No se pudo obtener último UID.", "err");
+    setPayMsg("No se pudo obtener ultimo UID.", "err");
   }
 }
 
 async function pay(){
   const uid = String($("uidInput").value || "").trim();
   if(!uid) return setPayMsg("UID requerido.", "err");
+  if(state.beforeBalance === null){
+    setPayMsg("Tarjeta no asignada o sin saldo disponible.", "err");
+    setPayEnabled(false);
+    return;
+  }
 
   const items = Array.from(state.cart.values()).map(it => ({
     productId: it.id,
-    quantity: it.qty,
-    price: it.price
+    qty: it.qty
   }));
   if(items.length === 0) return setPayMsg("Agrega productos al carrito.", "err");
 
   const totals = getTotals();
+  const operatorId = Number(session?.operatorId || 0);
+  if(!Number.isFinite(operatorId) || operatorId <= 0){
+    setPayMsg("ERROR 400: operatorId invalido en sesion.", "err");
+    return;
+  }
   const payload = {
-    areaId: Number(state.areaId),
-    menuId: state.menuId ?? null,
-    items,
-    subtotal: totals.subtotal,
-    tip: totals.tip,
-    total: totals.total,
     uid,
-    terminalId: state.terminalId || "BARRA-01"
+    areaId: Number(state.areaId),
+    operatorId,
+    tipAmount: totals.tip,
+    donationPercent: 0,
+    donationProjectId: null,
+    items
   };
 
   setPayMsg("Procesando cobro...", "");
 
-  const res = await apiFetch("/api/transactions", {
+  const res = await apiFetch("/api/charge-v2", {
     method:"POST",
     body: JSON.stringify(payload)
   });
+  const data = await res.json().catch(()=>null);
 
   if(res.status === 401){
     clearSession();
@@ -305,19 +437,42 @@ async function pay(){
     return;
   }
 
-  if(res.status === 400){
-    const data = await res.json().catch(()=>null);
-    const msg = data?.message || "Solicitud inválida";
-    setPayMsg(msg, "err");
+  if(res.status !== 200){
+    const msg = await readErrorMessage(res);
+    setPayMsg(`ERROR ${res.status}: ${msg}`, "err");
     return;
   }
-  if(res.status === 402 || res.status === 409){
-    setPayMsg("Saldo insuficiente.", "err");
-    return;
-  }
-  if(!res.ok){
-    setPayMsg(`Error ${res.status}`, "err");
-    return;
+
+  const hdr = apiHeaders();
+  console.log("POS_CHARGE", {
+    url: `${API_BASE}/api/charge-v2`,
+    hasTenant: !!hdr["X-Tenant-Id"],
+    hasFestival: !!hdr["X-Festival-Id"],
+    hasAuth: !!hdr["Authorization"],
+    hasOpToken: !!hdr["X-Operator-Token"],
+    terminalId: getTerminalId(),
+    uidShort: uidShort(uid),
+    total: totals.total
+  });
+
+  const afterFromResponse = Number(data?.newBalance ?? data?.afterBalance ?? data?.balanceAfter);
+  if(Number.isFinite(afterFromResponse)){
+    state.afterBalance = afterFromResponse;
+    setCardInfo({
+      statusText: "Cobro realizado",
+      holder: $("cardHolderName")?.textContent || "-",
+      before: state.beforeBalance,
+      after: state.afterBalance
+    });
+  }else{
+    await lookupAndRenderCard(uid);
+    state.afterBalance = state.beforeBalance;
+    setCardInfo({
+      statusText: "Cobro realizado",
+      holder: $("cardHolderName")?.textContent || "-",
+      before: state.beforeBalance,
+      after: state.afterBalance
+    });
   }
 
   setPayMsg("Cobro exitoso.", "ok");
@@ -352,14 +507,17 @@ function stopUidAutoRefresh(){
 
 async function init(){
   setSessionInfo();
-  setTerminalId(loadTerminalId());
+  initTerminalSelect();
+  setPayEnabled(false);
+  setCardInfo({ statusText: "-", holder: "-", before: null, after: null });
+
   $("btnLogout").addEventListener("click", ()=>{
     clearSession();
     window.location.href = "/login.html";
   });
 
-  $("terminalIdSave")?.addEventListener("click", ()=>{
-    setTerminalId($("terminalIdInput")?.value || "");
+  $("terminalSave")?.addEventListener("click", ()=>{
+    setTerminalId($("terminalSelect")?.value || "");
   });
 
   $("q").addEventListener("input", renderProducts);
@@ -369,6 +527,18 @@ async function init(){
   $("btnLastUid").addEventListener("click", ()=> useLastUid());
   $("btnPay").addEventListener("click", ()=> pay());
   $("btnClear").addEventListener("click", clearAll);
+
+  $("uidInput").addEventListener("input", ()=> {
+    const uid = String($("uidInput").value || "").trim();
+    if(!uid){
+      state.beforeBalance = null;
+      state.afterBalance = null;
+      setCardInfo({ statusText: "-", holder: "-", before: null, after: null });
+      setPayEnabled(false);
+      return;
+    }
+    lookupAndRenderCard(uid);
+  });
 
   await loadAreas();
   if(state.areaId){
@@ -394,3 +564,4 @@ init().catch(e=>{
   console.error("pos init error:", e);
   setPayMsg("Error inicializando POS.", "err");
 });
+

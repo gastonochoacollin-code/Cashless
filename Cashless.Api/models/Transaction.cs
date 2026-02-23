@@ -1,4 +1,4 @@
-namespace Cashless.Api.Models;
+﻿namespace Cashless.Api.Models;
 
 public enum TransactionType
 {
@@ -16,7 +16,7 @@ public class Transaction
     public int UserId { get; set; }
     public User User { get; set; } = null!;
 
-    // Para auditoría: qué tarjeta se usó
+    // Para auditorÃ­a: quÃ© tarjeta se usÃ³
     public string? CardUid { get; set; }
 
     public TransactionType Type { get; set; }
@@ -26,7 +26,7 @@ public class Transaction
 
     public string? Note { get; set; }
 
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; } = Cashless.Api.Services.Infra.DateTimeProvider.NowMexico();
     public decimal TipAmount { get; set; }
 public decimal DonationAmount { get; set; }
 public int? DonationProjectId { get; set; }
@@ -34,5 +34,7 @@ public int? SaleId { get; set; }
 public Sale? Sale { get; set; }
 public int? AreaId { get; set; }
 public int? OperatorId { get; set; }
+public int? ShiftId { get; set; }
 
 }
+

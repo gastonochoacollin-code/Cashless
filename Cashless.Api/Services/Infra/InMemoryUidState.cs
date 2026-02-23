@@ -3,7 +3,7 @@ namespace Cashless.Api.Services.Infra;
 public sealed class InMemoryUidState : IUidState
 {
     private readonly object _lock = new();
-    private string? _lastUid;
+    private const string DefaultTerminal = "DEFAULT";
     private string? _pendingChargeUid;
     private readonly Dictionary<string, string> _lastByTerminal = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _pendingByTerminal = new(StringComparer.OrdinalIgnoreCase);
@@ -12,15 +12,12 @@ public sealed class InMemoryUidState : IUidState
     {
         lock (_lock)
         {
-            _lastUid = uid;
-            _pendingChargeUid = uid;
-
             var key = NormalizeTerminal(terminalId);
-            if (key != null)
-            {
-                _lastByTerminal[key] = uid;
-                _pendingByTerminal[key] = uid;
-            }
+            _lastByTerminal[key] = uid;
+            _pendingByTerminal[key] = uid;
+
+            // Compat: allow pending charge validation when terminalId isn't provided.
+            _pendingChargeUid = uid;
         }
     }
 
@@ -28,14 +25,14 @@ public sealed class InMemoryUidState : IUidState
     {
         lock (_lock)
         {
-            if (string.IsNullOrWhiteSpace(_lastUid))
+            if (_lastByTerminal.TryGetValue(DefaultTerminal, out var last))
             {
-                uid = string.Empty;
-                return false;
+                uid = last;
+                return true;
             }
 
-            uid = _lastUid;
-            return true;
+            uid = string.Empty;
+            return false;
         }
     }
 
@@ -44,22 +41,15 @@ public sealed class InMemoryUidState : IUidState
         lock (_lock)
         {
             var key = NormalizeTerminal(terminalId);
-            if (key != null && _lastByTerminal.TryGetValue(key, out var termUid))
+            if (_lastByTerminal.TryGetValue(key, out var termUid))
             {
                 uid = termUid;
                 _lastByTerminal.Remove(key);
                 return true;
             }
 
-            if (string.IsNullOrWhiteSpace(_lastUid))
-            {
-                uid = string.Empty;
-                return false;
-            }
-
-            uid = _lastUid;
-            _lastUid = null;
-            return true;
+            uid = string.Empty;
+            return false;
         }
     }
 
@@ -68,7 +58,7 @@ public sealed class InMemoryUidState : IUidState
         lock (_lock)
         {
             var key = NormalizeTerminal(terminalId);
-            if (key != null && _pendingByTerminal.TryGetValue(key, out var pending))
+            if (_pendingByTerminal.TryGetValue(key, out var pending))
             {
                 if (!string.Equals(pending, uid, StringComparison.Ordinal))
                     return false;
@@ -80,20 +70,26 @@ public sealed class InMemoryUidState : IUidState
                 return true;
             }
 
-            if (_pendingChargeUid == null || !string.Equals(_pendingChargeUid, uid, StringComparison.Ordinal))
-                return false;
+            if (string.IsNullOrWhiteSpace(terminalId))
+            {
+                if (_pendingChargeUid == null || !string.Equals(_pendingChargeUid, uid, StringComparison.Ordinal))
+                    return false;
 
-            if (string.Equals(_lastUid, uid, StringComparison.Ordinal))
-                _lastUid = null;
+                if (_lastByTerminal.TryGetValue(DefaultTerminal, out var lastDefault)
+                    && string.Equals(lastDefault, uid, StringComparison.Ordinal))
+                    _lastByTerminal.Remove(DefaultTerminal);
 
-            _pendingChargeUid = null;
-            return true;
+                _pendingChargeUid = null;
+                return true;
+            }
+
+            return false;
         }
     }
 
-    private static string? NormalizeTerminal(string? terminalId)
+    private static string NormalizeTerminal(string? terminalId)
     {
         var t = (terminalId ?? string.Empty).Trim();
-        return string.IsNullOrWhiteSpace(t) ? null : t.ToUpperInvariant();
+        return string.IsNullOrWhiteSpace(t) ? DefaultTerminal : t.ToUpperInvariant();
     }
 }

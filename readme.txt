@@ -113,18 +113,24 @@ Estado: FUNCIONANDO.
 6. LECTOR NFC
 -----------------------------------------------------
 
-Configuración:
-- .NET 8 requerido
-- Ejecutar con dotnet run
-- Lee UID de tarjeta o pulsera
+Configuracion rapida (por PC):
+- TerminalId por PC (ej: BARRA-02, CAJA-01). Se normaliza a MAYUSCULAS.
+- Endpoint recomendado: /api/uid
+- Envio de terminal: querystring ?terminalId=... y header X-Terminal-Id.
 
-Problema resuelto:
-- Dos lectores enviaban formato distinto
-- Se estandarizó la codificación
-- Ahora ambos leen y envían el mismo UID
+Ejecutar (EXE portable):
+- Cashless.NfcReader.exe (self-contained win-x64)
+- start_reader.cmd con:
+  CASHLESS_API_BASEURL=http://IP_LOCAL:5001
+  CASHLESS_API_ENDPOINT=/api/uid
+  CASHLESS_TERMINAL_ID=BARRA-02
+
+Compatibilidad:
+- Si no se envia terminalId, el backend usa DEFAULT.
+- /uid y /last-uid siguen activos como legacy.
 
 Arquitectura:
-Lector → API → Validación de usuario → Descuento de saldo
+Lector -> /api/uid?terminalId=... -> /api/last-uid?terminalId=... -> UI
 
 -----------------------------------------------------
 7. REPORTES

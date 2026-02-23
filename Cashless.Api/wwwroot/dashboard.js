@@ -1,27 +1,55 @@
-﻿// wwwroot/dashboard.js
+// wwwroot/dashboard.js
 // Requiere common.js (apiJson, apiFetch, requireSession, getSession, clearSession, $, getFestivalId, setFestivalId)
 
 const session = requireSession();
-let usersDebugState = null;
+const roleRaw = String(session?.role || session?.Role || "").trim();
+const roleNorm = roleRaw.toLowerCase().replace(/[\s_\-]/g, "");
+
+function isAdminOrSuper(){
+  return roleNorm === "admin" || roleNorm === "superadmin";
+}
+
+function isBoss(){
+  return roleNorm.includes("jefe");
+}
+
+function isCashier(){
+  return roleNorm === "cajero" || roleNorm === "cashier";
+}
+
+function isSeller(){
+  return roleNorm === "vendedor";
+}
+
+function isJefeDeBarra(){
+  return roleNorm === "jefedebarra";
+}
+
+function canPos(){
+  return isSeller() || isJefeDeBarra() || isBoss() || isAdminOrSuper();
+}
+
+function canCaja(){
+  return isCashier() || isBoss() || isAdminOrSuper();
+}
+
+function canReports(){
+  return isBoss() || isAdminOrSuper();
+}
+
+function canAdmin(){
+  return isAdminOrSuper();
+}
+
+function canBarsCatalog(){
+  return isJefeDeBarra() || roleNorm === "jefeoperativo" || isAdminOrSuper();
+}
 
 function setMsg(t, err = false){
   const el = $("msg");
   if(!el) return;
   el.textContent = t || "";
   el.style.color = err ? "#ff5a5a" : "";
-}
-
-function pill(elId, ok, text, warn = false){
-  const el = $(elId);
-  if(!el) return;
-  el.textContent = text;
-  el.className = "pill " + (warn ? "warn" : (ok ? "ok" : "bad"));
-}
-
-function setStatus(elId, ok, text, msg, warn = false){
-  pill(elId, ok, text, warn);
-  const msgEl = $(elId + "Msg");
-  if(msgEl) msgEl.textContent = msg || "";
 }
 
 function money(n){
@@ -69,57 +97,10 @@ function sortUsers(list){
   });
 }
 
-async function fetchUsersFirstAvailable(){
-  const endpoints = [
-    "/api/users",
-    "/users",
-    "/api/admin/users",
-    "/api/admin/list-users"
-  ];
-
-  for(const ep of endpoints){
-    try{
-      const res = await apiFetch(ep, { method:"GET" });
-      const status = res.status;
-      let body = null;
-
-      if(status === 401){
-        usersDebugState = { endpoint: ep, status, example: null };
-        setStatus("stUsers", false, "NO", "SesiÃ³n expirada");
-        return { ok:false, status, endpoint: ep, data: [] };
-      }
-
-      if(status === 200){
-        const text = await res.text();
-        try{ body = text ? JSON.parse(text) : null; }catch{ body = text; }
-        const list = normalizeUsers(body);
-        usersDebugState = { endpoint: ep, status, example: list[0] || null };
-        return { ok:true, status, endpoint: ep, data: list, raw: body };
-      }
-
-      if(status === 404){
-        continue;
-      }
-
-      const errText = await res.text();
-      usersDebugState = { endpoint: ep, status, example: null };
-      return { ok:false, status, endpoint: ep, error: errText || `HTTP ${status}`, data: [] };
-    }catch(e){
-      usersDebugState = { endpoint: ep, status: 0, example: null };
-      return { ok:false, status: 0, endpoint: ep, error: e?.message || String(e), data: [] };
-    }
-  }
-
-  usersDebugState = { endpoint: "(ninguno)", status: 404, example: null };
-  return { ok:false, status: 404, endpoint: "(ninguno)", error: "No disponible", data: [] };
-}
-
-async function tryUserCount(){
+async function getUserCount(){
   const candidates = [
     "/api/users/count",
-    "/api/users/summary",
-    "/users/count",
-    "/users/summary"
+    "/api/users/summary"
   ];
 
   for(const ep of candidates){
@@ -150,8 +131,7 @@ async function loadFestivals(){
   const res = await safeJson("/api/festivals");
   if(!res.ok){
     if(select) select.innerHTML = `<option value="">No disponible</option>`;
-    if(activeName) activeName.textContent = "â€”";
-    setStatus("stFestivals", false, "ERROR", res.error || "No disponible");
+    if(activeName) activeName.textContent = "-";
     return;
   }
 
@@ -160,8 +140,7 @@ async function loadFestivals(){
 
   if(list.length === 0){
     if(select) select.innerHTML = `<option value="">Sin festivales</option>`;
-    if(activeName) activeName.textContent = "â€”";
-    setStatus("stFestivals", true, "OK", "Sin festivales", true);
+    if(activeName) activeName.textContent = "-";
     return;
   }
 
@@ -190,10 +169,8 @@ async function loadFestivals(){
   }
 
   if(activeName){
-    activeName.textContent = activeLabel || "â€”";
+    activeName.textContent = activeLabel || "-";
   }
-
-  setStatus("stFestivals", true, "OK", activeLabel ? `Activo: ${activeLabel}` : "OK");
 }
 
 async function activateFestival(){
@@ -207,7 +184,7 @@ async function activateFestival(){
   const res = await safeJson(`/api/festivals/${id}/activate`, { method:"POST" });
   if(!res.ok){
     setFestivalId(id);
-    setMsg("Festival seleccionado (sin endpoint de activaciÃ³n)");
+    setMsg("Festival seleccionado (sin endpoint de activacion)");
     await loadFestivals();
     return;
   }
@@ -221,28 +198,13 @@ async function testLastUid(){
   try{
     const uid = await apiGetLastUid();
 
-    $("lastUid").textContent = uid || "â€”";
-    $("kpiNfc").textContent = uid || "â€”";
-
-    if(!uid){
-      setStatus("stUid", true, "OK", "Sin UID", true);
-      return null;
-    }
-
-    try{
-      const card = await apiGetCardByUid(uid);
-      const userName = card?.userName || "Usuario";
-      const balance = Number(card?.balance ?? 0);
-      setStatus("stUid", true, "OK", `UID detectado Â· ${userName} Â· ${money(balance)}`);
-    }catch(e){
-      const msg = e?.message || "No asignada";
-      const notAssigned = /no existe|no asignada|not found/i.test(msg);
-      setStatus("stUid", true, "OK", notAssigned ? "UID detectado Â· sin usuario asignado" : `UID detectado Â· ${msg}`, notAssigned);
-    }
+    $("lastUid").textContent = uid || "-";
+    $("kpiNfc").textContent = uid || "-";
 
     return uid;
   }catch(e){
-    setStatus("stUid", false, "ERROR", e?.message || "No disponible");
+    $("lastUid").textContent = "-";
+    $("kpiNfc").textContent = "-";
     return null;
   }
 }
@@ -254,91 +216,96 @@ async function loadAreas(){
     const active = areas.filter(x => (x.isActive ?? x.IsActive) === true).length;
     $("kpiAreas").textContent = String(active);
     $("kpiAreasTotal").textContent = String(areas.length);
-    setStatus("stAreas", true, "OK", `${active} activas de ${areas.length}`);
     return;
   }
 
-  $("kpiAreas").textContent = "â€”";
-  $("kpiAreasTotal").textContent = "â€”";
-  setStatus("stAreas", false, "ERROR", a.error || "No disponible");
+  $("kpiAreas").textContent = "-";
+  $("kpiAreasTotal").textContent = "-";
 }
 
 async function loadUsers(){
-  const res = await fetchUsersFirstAvailable();
-
-  if(res.ok){
-    const list = sortUsers(res.data || []);
-    const countFromApi = await tryUserCount();
-    const count = (typeof countFromApi === "number") ? countFromApi : list.length;
-
-    $("kpiUsers").textContent = String(count);
-
-    let totalSold = 0;
-    let totalBalance = 0;
-    for(const x of list){
-      const spent = Number(x.totalSpent ?? x.TotalSpent ?? 0);
-      const bal = Number(x.balance ?? x.Balance ?? 0);
-      totalSold += spent;
-      totalBalance += bal;
-    }
-
-    $("kpiSold").textContent = money(totalSold);
-    $("kpiBalanceTotal").textContent = money(totalBalance);
-
-    const top10 = list.slice(0,10);
-    const tbody = $("recentUsers");
-    tbody.innerHTML = "";
-
-    for(const x of top10){
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td class="mono">${x.id ?? x.Id ?? "â€”"}</td>
-        <td>${(x.name ?? x.Name) || "â€”"}</td>
-        <td>${money(x.balance ?? x.Balance)}</td>
-        <td>${money(x.totalSpent ?? x.TotalSpent)}</td>
-      `;
-      tbody.appendChild(tr);
-    }
-
-    setStatus("stUsers", true, "OK", `Endpoint: ${res.endpoint}`);
-    return;
+  let list = [];
+  try{
+    const res = await apiJson("/api/users", { method:"GET" });
+    list = normalizeUsers(res);
+  }catch(e){
+    list = [];
   }
 
-  $("kpiUsers").textContent = "â€”";
-  $("kpiSold").textContent = "â€”";
-  $("kpiBalanceTotal").textContent = "â€”";
-  $("recentUsers").innerHTML = "";
+  const sorted = sortUsers(list || []);
+  const countFromApi = await getUserCount();
+  const count = (typeof countFromApi === "number") ? countFromApi : sorted.length;
 
-  if(res.status === 401){
-    setStatus("stUsers", false, "NO", "SesiÃ³n expirada");
-    return;
+  $("kpiUsers").textContent = String(count);
+
+  let totalSold = 0;
+  for(const x of sorted){
+    const spent = Number(x.totalSpent ?? x.TotalSpent ?? 0);
+    totalSold += spent;
   }
 
-  if(res.status === 404){
-    setStatus("stUsers", false, "ERROR", "Endpoint no disponible");
-    return;
-  }
+  $("kpiSold").textContent = money(totalSold);
 
-  setStatus("stUsers", false, "ERROR", res.error || "No disponible");
+  const top10 = sorted.slice(0,10);
+  const tbody = $("recentUsers");
+  tbody.innerHTML = "";
+
+  for(const x of top10){
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="mono">${x.id ?? x.Id ?? "-"}</td>
+      <td>${(x.name ?? x.Name) || "-"}</td>
+      <td>${money(x.balance ?? x.Balance)}</td>
+      <td>${money(x.totalSpent ?? x.TotalSpent)}</td>
+    `;
+    tbody.appendChild(tr);
+  }
 }
 
 function loadSession(){
   if(session?.name){
-    const area = session.area ? String(session.area) : "â€”";
-    const role = session.role ? String(session.role) : "â€”";
-    $("who").textContent = `Operador: ${session.name} Â· Ãrea: ${area} Â· Rol: ${role}`;
+    const area = session.area ? String(session.area) : "-";
+    const role = roleRaw || "-";
+    $("who").textContent = `Operador: ${session.name} - Area: ${area} - Rol: ${role}`;
     $("kpiOp").textContent = session.name;
     $("kpiRole").textContent = role;
-    setStatus("stSession", true, "OK", "SesiÃ³n vÃ¡lida");
   }else{
-    $("who").textContent = "SesiÃ³n no encontrada";
-    setStatus("stSession", false, "NO", "Sin sesiÃ³n");
+    $("who").textContent = "Sesion no encontrada";
   }
+}
+
+function setVisible(id, visible){
+  const node = $(id);
+  if(!node) return;
+  node.style.display = visible ? "" : "none";
+}
+
+function applyDashboardAccess(){
+  const canPosV = canPos();
+  const canCajaV = canCaja();
+  const canReportsV = canReports();
+  const canAdminV = canAdmin();
+  const canBarsV = canBarsCatalog();
+
+  setVisible("btnQuickPos", canPosV);
+  setVisible("btnQuickCaja", canCajaV);
+  setVisible("btnPos", canPosV);
+  setVisible("btnCaja", canCajaV);
+
+  setVisible("btnBarras", canBarsV);
+  setVisible("btnMenus", canBarsV);
+  setVisible("btnReports", canReportsV);
+
+  setVisible("btnRecargas", canCajaV || canPosV || canBarsV || canAdminV);
+  setVisible("btnOperators", canAdminV);
+  setVisible("btnUsers", canAdminV);
+  setVisible("btnAdminAssign", canAdminV);
 }
 
 async function loadAll(){
   setMsg("Cargando datos...");
   loadSession();
+  applyDashboardAccess();
 
   await Promise.all([
     loadAreas(),
@@ -351,7 +318,6 @@ async function loadAll(){
 }
 
 $("btnReload").addEventListener("click", ()=> loadAll().catch(e=>setMsg(e.message,true)));
-$("btnTestUid").addEventListener("click", ()=> testLastUid());
 $("btnFestivalActivate")?.addEventListener("click", ()=> activateFestival());
 
 $("btnLogout").addEventListener("click", ()=>{
@@ -359,6 +325,7 @@ $("btnLogout").addEventListener("click", ()=>{
   location.href = "/login.html";
 });
 
+renderAppMenu("appMenu", "/dashboard.html");
 loadAll();
 let uidPollHandle = null;
 
@@ -383,5 +350,3 @@ document.addEventListener("visibilitychange", () => {
 });
 
 startUidPolling();
-
-
