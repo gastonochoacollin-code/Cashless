@@ -10,7 +10,11 @@ using Microsoft.Data.Sqlite;
 Console.WriteLine("🔥 PROGRAM.CS (Cashless.Api) 🔥");
 
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.UseUrls("http://0.0.0.0:5001");
+var serverUrls =
+    builder.Configuration["urls"]
+    ?? builder.Configuration["ASPNETCORE_URLS"]
+    ?? "http://0.0.0.0:5001";
+builder.WebHost.UseUrls(serverUrls);
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? "Data Source=cashless.db";
@@ -174,6 +178,33 @@ using (var scope = app.Services.CreateScope())
             );
             """);
 
+        db.Database.ExecuteSqlRaw("""
+            CREATE TABLE IF NOT EXISTS InventoryMovements (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                TenantId INTEGER NOT NULL,
+                ProductId INTEGER NOT NULL,
+                AreaId INTEGER NULL,
+                Qty REAL NOT NULL,
+                Direction TEXT NOT NULL,
+                OperatorId INTEGER NOT NULL,
+                Comment TEXT NULL,
+                CreatedAt TEXT NOT NULL
+            );
+            """);
+
+        db.Database.ExecuteSqlRaw("""
+            CREATE TABLE IF NOT EXISTS BalanceTransfers (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                TenantId INTEGER NOT NULL,
+                FromUserId INTEGER NOT NULL,
+                ToUserId INTEGER NOT NULL,
+                Amount REAL NOT NULL,
+                OperatorId INTEGER NOT NULL,
+                Comment TEXT NULL,
+                CreatedAt TEXT NOT NULL
+            );
+            """);
+
         bool? HasSqliteColumn(string tableName, string columnName)
         {
             try
@@ -275,6 +306,30 @@ using (var scope = app.Services.CreateScope())
         catch (Exception ex)
         {
             startupLogger.LogWarning(ex, "No se pudo crear indice IX_Recharges_Tenant_CardUid_CreatedAt.");
+        }
+
+        try
+        {
+            db.Database.ExecuteSqlRaw("""
+                CREATE INDEX IF NOT EXISTS IX_InventoryMovements_Tenant_Area_Product_CreatedAt
+                ON InventoryMovements (TenantId, AreaId, ProductId, CreatedAt DESC);
+                """);
+        }
+        catch (Exception ex)
+        {
+            startupLogger.LogWarning(ex, "No se pudo crear indice IX_InventoryMovements_Tenant_Area_Product_CreatedAt.");
+        }
+
+        try
+        {
+            db.Database.ExecuteSqlRaw("""
+                CREATE INDEX IF NOT EXISTS IX_BalanceTransfers_Tenant_From_To_CreatedAt
+                ON BalanceTransfers (TenantId, FromUserId, ToUserId, CreatedAt DESC);
+                """);
+        }
+        catch (Exception ex)
+        {
+            startupLogger.LogWarning(ex, "No se pudo crear indice IX_BalanceTransfers_Tenant_From_To_CreatedAt.");
         }
     }
 

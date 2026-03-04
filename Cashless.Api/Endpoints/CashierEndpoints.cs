@@ -87,6 +87,8 @@ public static class CashierEndpoints
         api.MapGet("/clients", GetClientsAsync);
         api.MapGet("/clients/{id:int}", GetClientByIdAsync);
         api.MapGet("/clients/search", SearchClientsAsync);
+        api.MapGet("/clients/transfers", GetBalanceTransfersAsync);
+        api.MapPost("/clients/transfer-balance", TransferBalanceAsync);
 
         api.MapPost("/cards/assign", AssignCardAsync);
         api.MapPost("/cards/reassign", ReassignCardAsync);
@@ -118,7 +120,7 @@ public static class CashierEndpoints
         IAuthService auth,
         CreateClientRequest req)
     {
-        var (op, fail) = await RequireCashier(db, http, auth);
+        var (op, fail) = await RequireClientRegistrar(db, http, auth);
         if (fail is not null) return fail;
 
         if (string.IsNullOrWhiteSpace(req.Name))
@@ -158,7 +160,7 @@ public static class CashierEndpoints
     /// </remarks>
     private static async Task<IResult> GetClientsAsync(CashlessContext db, HttpContext http, IAuthService auth)
     {
-        var (op, fail) = await RequireCashier(db, http, auth);
+        var (op, fail) = await RequireClientRegistrar(db, http, auth);
         if (fail is not null) return fail;
 
         var list = await db.Users
@@ -192,7 +194,7 @@ public static class CashierEndpoints
         HttpContext http,
         IAuthService auth)
     {
-        var (op, fail) = await RequireCashier(db, http, auth);
+        var (op, fail) = await RequireClientRegistrar(db, http, auth);
         if (fail is not null) return fail;
 
         var user = await db.Users
@@ -227,7 +229,7 @@ public static class CashierEndpoints
         HttpContext http,
         IAuthService auth)
     {
-        var (op, fail) = await RequireCashier(db, http, auth);
+        var (op, fail) = await RequireClientRegistrar(db, http, auth);
         if (fail is not null) return fail;
 
         var text = (q ?? "").Trim().ToLowerInvariant();
@@ -257,6 +259,116 @@ public static class CashierEndpoints
             .ToListAsync();
 
         return Results.Ok(list);
+    }
+
+    private static async Task<IResult> GetBalanceTransfersAsync(
+        CashlessContext db,
+        HttpContext http,
+        IAuthService auth)
+    {
+        var (op, fail) = await RequireClientRegistrar(db, http, auth);
+        if (fail is not null) return fail;
+
+        var rows = await db.BalanceTransfers
+            .Include(x => x.FromUser)
+            .Include(x => x.ToUser)
+            .Include(x => x.Operator)
+            .Where(x => x.TenantId == op!.TenantId)
+            .OrderByDescending(x => x.CreatedAt)
+            .Take(100)
+            .Select(x => new
+            {
+                x.Id,
+                x.FromUserId,
+                fromUserName = x.FromUser.Name,
+                x.ToUserId,
+                toUserName = x.ToUser.Name,
+                x.Amount,
+                x.OperatorId,
+                operatorName = x.Operator.Name,
+                x.Comment,
+                x.CreatedAt
+            })
+            .ToListAsync();
+
+        return Results.Ok(rows);
+    }
+
+    private static async Task<IResult> TransferBalanceAsync(
+        CashlessContext db,
+        HttpContext http,
+        IAuthService auth,
+        TransferBalanceRequest req)
+    {
+        var (op, fail) = await RequireClientRegistrar(db, http, auth);
+        if (fail is not null) return fail;
+
+        if (req.FromUserId <= 0) return Results.BadRequest(new { message = "FromUserId invalido" });
+        if (req.ToUserId <= 0) return Results.BadRequest(new { message = "ToUserId invalido" });
+        if (req.FromUserId == req.ToUserId) return Results.BadRequest(new { message = "Los usuarios deben ser distintos" });
+        if (req.Amount <= 0m) return Results.BadRequest(new { message = "Amount invalido" });
+
+        var tenantId = op!.TenantId;
+        var userIds = new[] { req.FromUserId, req.ToUserId };
+        var users = await db.Users
+            .Where(u => u.TenantId == tenantId && userIds.Contains(u.Id))
+            .ToListAsync();
+
+        var fromUser = users.FirstOrDefault(u => u.Id == req.FromUserId);
+        if (fromUser is null) return Results.NotFound(new { message = "Usuario origen no encontrado" });
+
+        var toUser = users.FirstOrDefault(u => u.Id == req.ToUserId);
+        if (toUser is null) return Results.NotFound(new { message = "Usuario destino no encontrado" });
+
+        if (fromUser.Balance < req.Amount)
+            return Results.BadRequest(new { message = "Saldo insuficiente en el usuario origen" });
+
+        var now = DateTimeProvider.NowMexico();
+        var note = string.IsNullOrWhiteSpace(req.Comment) ? null : req.Comment.Trim();
+
+        await using var tx = await db.Database.BeginTransactionAsync();
+
+        fromUser.Balance -= req.Amount;
+        toUser.Balance += req.Amount;
+
+        db.BalanceTransfers.Add(new BalanceTransfer
+        {
+            TenantId = tenantId,
+            FromUserId = fromUser.Id,
+            ToUserId = toUser.Id,
+            Amount = req.Amount,
+            OperatorId = op.Id,
+            Comment = note,
+            CreatedAt = now
+        });
+
+        await db.SaveChangesAsync();
+        await tx.CommitAsync();
+
+        return Results.Ok(new
+        {
+            ok = true,
+            amount = req.Amount,
+            fromUser = new
+            {
+                fromUser.Id,
+                fromUser.Name,
+                balance = fromUser.Balance
+            },
+            toUser = new
+            {
+                toUser.Id,
+                toUser.Name,
+                balance = toUser.Balance
+            },
+            operatorInfo = new
+            {
+                op.Id,
+                op.Name
+            },
+            comment = note,
+            createdAt = now
+        });
     }
 
     /// <summary>
@@ -540,28 +652,40 @@ public static class CashierEndpoints
         IAuthService auth,
         OpenShiftRequest req)
     {
-        var (op, fail) = await RequireCashier(db, http, auth);
+        var (op, fail) = await RequireShiftOperator(db, http, auth);
         if (fail is not null) return fail;
         var tenantId = op!.TenantId;
         var cashierId = op.Id;
+        var scope = NormalizeShiftScope(http.Request.Query["scope"], op, req.BoxId);
+        var boxId = scope == "barra" ? (req.BoxId ?? op.AreaId) : null;
+        var isBarraScope = scope == "barra";
+        if (scope == "barra" && (!boxId.HasValue || boxId.Value <= 0))
+            return Results.BadRequest(new { message = "Turno de barra requiere AreaId/BoxId valido." });
 
-        var existing = await db.Shifts
-            .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.CashierId == cashierId && s.Status == "Open" && s.ClosedAt == null);
+        var existingQuery = db.Shifts
+            .Where(s => s.TenantId == tenantId
+                && s.CashierId == cashierId
+                && s.Status == "Open"
+                && s.ClosedAt == null);
+        existingQuery = isBarraScope
+            ? existingQuery.Where(s => s.BoxId.HasValue && s.BoxId.Value > 0 && s.BoxId == boxId)
+            : existingQuery.Where(s => !s.BoxId.HasValue || s.BoxId.Value <= 0);
+        var existing = await existingQuery.FirstOrDefaultAsync();
         if (existing is not null)
-            return Results.Conflict(new { message = "Ya tienes un turno abierto", shiftId = existing.Id });
+            return Results.Conflict(new { message = $"Ya tienes un turno de {scope} abierto", shiftId = existing.Id });
 
         var shift = new Shift
         {
             TenantId = tenantId,
             CashierId = cashierId,
-            BoxId = req.BoxId ?? op.AreaId,
+            BoxId = boxId,
             OpenedAt = DateTimeProvider.NowMexico(),
             Status = "Open"
         };
 
         db.Shifts.Add(shift);
         await db.SaveChangesAsync();
-        return Results.Ok(new { ok = true, shiftId = shift.Id, shift.OpenedAt, shift.BoxId, shift.Status });
+        return Results.Ok(new { ok = true, shiftId = shift.Id, shift.OpenedAt, shift.BoxId, shift.Status, scope });
     }
 
     /// <summary>
@@ -571,24 +695,34 @@ public static class CashierEndpoints
     /// Validaciones: 404 si no hay turno abierto.
     /// Autorización: 401 si no autentica, 403 si no es Cajero.
     /// </remarks>
-    private static async Task<IResult> CloseShiftAsync(CashlessContext db, HttpContext http, IAuthService auth)
+    private static async Task<IResult> CloseShiftAsync(CashlessContext db, HttpContext http, IAuthService auth, string? scope)
     {
-        var (op, fail) = await RequireCashier(db, http, auth);
+        var (op, fail) = await RequireShiftOperator(db, http, auth);
         if (fail is not null) return fail;
         var tenantId = op!.TenantId;
         var cashierId = op.Id;
+        var shiftScope = NormalizeShiftScope(scope, op);
+        var isBarraScope = shiftScope == "barra";
 
-        var shift = await db.Shifts
+        var shiftQuery = db.Shifts
+            .Where(s => s.TenantId == tenantId
+                && s.CashierId == cashierId
+                && s.Status == "Open"
+                && s.ClosedAt == null);
+        shiftQuery = isBarraScope
+            ? shiftQuery.Where(s => s.BoxId.HasValue && s.BoxId.Value > 0)
+            : shiftQuery.Where(s => !s.BoxId.HasValue || s.BoxId.Value <= 0);
+        var shift = await shiftQuery
             .OrderByDescending(s => s.Id)
-            .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.CashierId == cashierId && s.Status == "Open" && s.ClosedAt == null);
-        if (shift is null) return Results.NotFound(new { message = "No hay turno abierto" });
+            .FirstOrDefaultAsync();
+        if (shift is null) return Results.NotFound(new { message = $"No hay turno abierto de {shiftScope}" });
 
         shift.ClosedAt = DateTimeProvider.NowMexico();
         shift.Status = "Closed";
         await db.SaveChangesAsync();
 
         var summary = await BuildShiftSummaryAsync(db, tenantId, cashierId, shift.Id);
-        return Results.Ok(new { ok = true, shiftId = shift.Id, shift.OpenedAt, shift.ClosedAt, shift.Status, summary });
+        return Results.Ok(new { ok = true, shiftId = shift.Id, shift.OpenedAt, shift.ClosedAt, shift.Status, shift.BoxId, scope = shiftScope, summary });
     }
 
     /// <summary>
@@ -598,16 +732,26 @@ public static class CashierEndpoints
     /// Autorización: 401 si no autentica, 403 si no es Cajero.
     /// Si no hay turno abierto, devuelve métricas de turno en cero y mantiene el histórico.
     /// </remarks>
-    private static async Task<IResult> GetCurrentShiftAsync(CashlessContext db, HttpContext http, IAuthService auth)
+    private static async Task<IResult> GetCurrentShiftAsync(CashlessContext db, HttpContext http, IAuthService auth, string? scope)
     {
-        var (op, fail) = await RequireCashier(db, http, auth);
+        var (op, fail) = await RequireShiftOperator(db, http, auth);
         if (fail is not null) return fail;
         var tenantId = op!.TenantId;
         var cashierId = op.Id;
+        var shiftScope = NormalizeShiftScope(scope, op);
+        var isBarraScope = shiftScope == "barra";
 
-        var shift = await db.Shifts
+        var currentShiftQuery = db.Shifts
+            .Where(s => s.TenantId == tenantId
+                && s.CashierId == cashierId
+                && s.Status == "Open"
+                && s.ClosedAt == null);
+        currentShiftQuery = isBarraScope
+            ? currentShiftQuery.Where(s => s.BoxId.HasValue && s.BoxId.Value > 0)
+            : currentShiftQuery.Where(s => !s.BoxId.HasValue || s.BoxId.Value <= 0);
+        var shift = await currentShiftQuery
             .OrderByDescending(s => s.Id)
-            .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.CashierId == cashierId && s.Status == "Open" && s.ClosedAt == null);
+            .FirstOrDefaultAsync();
 
         if (shift is null)
         {
@@ -619,6 +763,7 @@ public static class CashierEndpoints
             return Results.Ok(new
             {
                 hasOpenShift = false,
+                scope = shiftScope,
                 totalConvertedCurrentShift = 0m,
                 totalConvertedHistorical = historical,
                 totalTransactionsCurrentShift = 0
@@ -629,6 +774,7 @@ public static class CashierEndpoints
         return Results.Ok(new
         {
             hasOpenShift = true,
+            scope = shiftScope,
             shiftId = shift.Id,
             shift.BoxId,
             shift.OpenedAt,
@@ -647,43 +793,99 @@ public static class CashierEndpoints
         IAuthService auth,
         string? from,
         string? to,
-        int? cashierId)
+        int? cashierId,
+        string? scope)
     {
-        var (op, fail) = await RequireCashierOrAdmin(db, http, auth);
+        var (op, fail) = await RequireShiftOperatorOrAdmin(db, http, auth);
         if (fail is not null) return fail;
         var tenantId = op!.TenantId;
         var isCashier = op.Role == OperatorRole.Cajero;
         var targetCashierId = isCashier ? op.Id : (cashierId > 0 ? cashierId.Value : (int?)null);
+        var shiftScope = NormalizeShiftScope(scope, op);
+        var isBarraScope = shiftScope == "barra";
         var range = GetMexicoRange(from, to);
+        Console.WriteLine($"[CASHIER_SHIFTS] tenantId={tenantId} opId={op.Id} role={op.Role} scope={shiftScope} from={from ?? "-"} to={to ?? "-"} rangeFrom={range.From:O} rangeToExcl={range.To:O} targetCashierId={(targetCashierId?.ToString() ?? "null")}");
 
-        var shifts = await db.Shifts
+        var shiftsQuery = db.Shifts
             .AsNoTracking()
             .Include(s => s.Cashier)
             .Where(s => s.TenantId == tenantId
                 && (!targetCashierId.HasValue || s.CashierId == targetCashierId.Value)
                 && s.OpenedAt >= range.From
-                && s.OpenedAt < range.To)
+                && s.OpenedAt < range.To);
+        shiftsQuery = isBarraScope
+            ? shiftsQuery.Where(s => s.BoxId.HasValue && s.BoxId.Value > 0)
+            : shiftsQuery.Where(s => !s.BoxId.HasValue || s.BoxId.Value <= 0);
+
+        var shifts = await shiftsQuery
             .OrderByDescending(s => s.Id)
             .Select(s => new
             {
                 s.Id,
                 s.CashierId,
                 CashierName = s.Cashier != null ? s.Cashier.Name : null,
+                s.BoxId,
                 s.OpenedAt,
                 s.ClosedAt,
                 s.Status
             })
             .ToListAsync();
+        Console.WriteLine($"[CASHIER_SHIFTS] shifts_found={shifts.Count}");
 
         var shiftIds = shifts.Select(s => s.Id).ToList();
-        var txTopups = await db.Transactions
-            .Where(t => t.TenantId == tenantId
-                && t.Type == TransactionType.TopUp
-                && (!targetCashierId.HasValue || t.OperatorId == targetCashierId.Value)
-                && t.ShiftId.HasValue
-                && shiftIds.Contains(t.ShiftId.Value))
-            .Select(t => new TopupShiftRow(t.ShiftId!.Value, t.Amount, t.CreatedAt, t.Note))
-            .ToListAsync();
+        var txTopups = new List<TopupShiftRow>();
+        var directShiftTopups = 0;
+        var legacyWindowTopups = 0;
+        if (shiftIds.Count > 0)
+        {
+            var minOpenedAt = shifts.Min(s => s.OpenedAt);
+            var maxShiftEnd = shifts.Max(s => s.ClosedAt ?? DateTimeProvider.NowMexico());
+
+            var txTopupsRaw = await db.Transactions
+                .Where(t => t.TenantId == tenantId
+                    && t.Type == TransactionType.TopUp
+                    && (!targetCashierId.HasValue || t.OperatorId == targetCashierId.Value)
+                    && (
+                        (t.ShiftId.HasValue && shiftIds.Contains(t.ShiftId.Value))
+                        || (!t.ShiftId.HasValue && t.CreatedAt >= minOpenedAt && t.CreatedAt <= maxShiftEnd)
+                    ))
+                .Select(t => new
+                {
+                    t.ShiftId,
+                    t.OperatorId,
+                    t.Amount,
+                    t.CreatedAt,
+                    t.Note
+                })
+                .ToListAsync();
+
+            foreach (var tx in txTopupsRaw)
+            {
+                if (tx.ShiftId.HasValue && shiftIds.Contains(tx.ShiftId.Value))
+                {
+                    txTopups.Add(new TopupShiftRow(tx.ShiftId.Value, tx.Amount, tx.CreatedAt, tx.Note));
+                    directShiftTopups++;
+                    continue;
+                }
+
+                // Compatibilidad legacy: topups sin ShiftId. Asignar al turno del cajero por ventana temporal.
+                var matchedShift = shifts
+                    .Where(s => s.CashierId == (tx.OperatorId ?? -1))
+                    .Where(s =>
+                    {
+                        var shiftEnd = s.ClosedAt ?? DateTimeProvider.NowMexico();
+                        return tx.CreatedAt >= s.OpenedAt && tx.CreatedAt <= shiftEnd;
+                    })
+                    .OrderByDescending(s => s.OpenedAt)
+                    .FirstOrDefault();
+
+                if (matchedShift is not null)
+                {
+                    txTopups.Add(new TopupShiftRow(matchedShift.Id, tx.Amount, tx.CreatedAt, tx.Note));
+                    legacyWindowTopups++;
+                }
+            }
+        }
 
         var rechargeRows = await db.Recharges
             .Where(r => r.TenantId == tenantId
@@ -691,6 +893,7 @@ public static class CashierEndpoints
                 && shiftIds.Contains(r.ShiftId))
             .Select(r => new RechargeShiftRow(r.ShiftId, r.Amount, r.CreatedAt, r.PaymentMethod))
             .ToListAsync();
+        Console.WriteLine($"[CASHIER_SHIFTS] topups_direct={directShiftTopups} topups_legacy_window={legacyWindowTopups} recharges={rechargeRows.Count}");
 
         var groupedTopups = txTopups.GroupBy(x => x.ShiftId).ToDictionary(g => g.Key, g => g.ToList());
         var groupedRecharges = rechargeRows.GroupBy(x => x.ShiftId).ToDictionary(g => g.Key, g => g.ToList());
@@ -698,7 +901,9 @@ public static class CashierEndpoints
         var rows = shifts.Select(s =>
         {
             var topups = groupedTopups.TryGetValue(s.Id, out var tList) ? tList : new List<TopupShiftRow>();
-            var recharges = groupedRecharges.TryGetValue(s.Id, out var rList) ? rList : new List<RechargeShiftRow>();
+            var rechargesAll = groupedRecharges.TryGetValue(s.Id, out var rList) ? rList : new List<RechargeShiftRow>();
+            // Mismo criterio que closeout: fuente primaria = Transactions TopUp; Recharges solo fallback si no hay topups.
+            var recharges = topups.Count > 0 ? new List<RechargeShiftRow>() : rechargesAll;
 
             decimal efectivo = 0m;
             decimal tarjeta = 0m;
@@ -741,6 +946,8 @@ public static class CashierEndpoints
                 shiftId = s.Id,
                 cashierId = s.CashierId,
                 cashierName = s.CashierName,
+                boxId = s.BoxId,
+                scope = shiftScope,
                 s.OpenedAt,
                 s.ClosedAt,
                 s.Status,
@@ -763,6 +970,7 @@ public static class CashierEndpoints
         {
             from = range.From,
             to = range.To,
+            scope = shiftScope,
             cashierId = targetCashierId,
             count = rows.Count,
             items = rows
@@ -778,7 +986,7 @@ public static class CashierEndpoints
     /// </remarks>
     private static async Task<IResult> GetMyShiftSummaryAsync(CashlessContext db, HttpContext http, IAuthService auth)
     {
-        var (op, fail) = await RequireCashier(db, http, auth);
+        var (op, fail) = await RequireShiftOperator(db, http, auth);
         if (fail is not null) return fail;
         var tenantId = op!.TenantId;
         var cashierId = op.Id;
@@ -809,7 +1017,7 @@ public static class CashierEndpoints
     /// </remarks>
     private static async Task<IResult> GetMyCloseoutAsync(CashlessContext db, HttpContext http, IAuthService auth)
     {
-        var (op, fail) = await RequireCashier(db, http, auth);
+        var (op, fail) = await RequireShiftOperator(db, http, auth);
         if (fail is not null) return fail;
         var tenantId = op!.TenantId;
         var cashierId = op.Id;
@@ -891,7 +1099,9 @@ public static class CashierEndpoints
         var defaultTo = today.AddDays(1);
 
         var fromDt = TryParseMexicoDate(from) ?? defaultFrom;
-        var toDt = TryParseMexicoDate(to) ?? defaultTo;
+        var toBase = TryParseMexicoDate(to);
+        var toDt = toBase.HasValue ? toBase.Value.AddDays(1) : defaultTo;
+        if (toDt <= fromDt) toDt = fromDt.AddDays(1);
 
         return (fromDt, toDt);
     }
@@ -933,6 +1143,16 @@ public static class CashierEndpoints
         }
     }
 
+    private static string NormalizeShiftScope(string? scope, Operator op, int? requestedBoxId = null)
+    {
+        var raw = (scope ?? string.Empty).Trim().ToLowerInvariant();
+        if (raw == "barra" || raw == "bar") return "barra";
+        if (raw == "caja" || raw == "cashier" || raw == "cash") return "caja";
+        if (op.Role == OperatorRole.JefeDeBarra || op.Role == OperatorRole.JefeDeStand) return "barra";
+        if (requestedBoxId.HasValue && requestedBoxId.Value > 0) return "barra";
+        return "caja";
+    }
+
     /// <summary>
     /// Autentica la solicitud y valida que el operador tenga rol Cajero.
     /// </summary>
@@ -953,6 +1173,20 @@ public static class CashierEndpoints
         return (op, null);
     }
 
+    private static async Task<(Operator? op, IResult? fail)> RequireClientRegistrar(
+        CashlessContext db,
+        HttpContext http,
+        IAuthService auth)
+    {
+        var op = await auth.AuthenticateAsync(db, http.Request);
+        if (op is null) return (null, Results.Unauthorized());
+        var isAdmin = op.Role == OperatorRole.Admin || op.Role == OperatorRole.SuperAdmin;
+        var isJefeOperativo = op.Role == OperatorRole.JefeOperativo;
+        if (op.Role != OperatorRole.Cajero && !isAdmin && !isJefeOperativo)
+            return (op, Results.Json(new { message = "Forbidden. Requiere acceso a registro de usuarios." }, statusCode: 403));
+        return (op, null);
+    }
+
     private static async Task<(Operator? op, IResult? fail)> RequireCashierOrAdmin(
         CashlessContext db,
         HttpContext http,
@@ -963,6 +1197,38 @@ public static class CashierEndpoints
         var isAdmin = op.Role == OperatorRole.Admin || op.Role == OperatorRole.SuperAdmin;
         var isJefeOperativo = op.Role == OperatorRole.JefeOperativo;
         if (op.Role != OperatorRole.Cajero && !isAdmin && !isJefeOperativo)
+            return (op, Results.Json(new { message = "Forbidden." }, statusCode: 403));
+        return (op, null);
+    }
+
+    private static async Task<(Operator? op, IResult? fail)> RequireShiftOperator(
+        CashlessContext db,
+        HttpContext http,
+        IAuthService auth)
+    {
+        var op = await auth.AuthenticateAsync(db, http.Request);
+        if (op is null) return (null, Results.Unauthorized());
+        var isAdmin = op.Role == OperatorRole.Admin || op.Role == OperatorRole.SuperAdmin;
+        var isJefeOperativo = op.Role == OperatorRole.JefeOperativo;
+        var isJefeDeBarra = op.Role == OperatorRole.JefeDeBarra;
+        var isJefeDeStand = op.Role == OperatorRole.JefeDeStand;
+        if (op.Role != OperatorRole.Cajero && !isAdmin && !isJefeOperativo && !isJefeDeBarra && !isJefeDeStand)
+            return (op, Results.Json(new { message = "Forbidden. Requiere rol de turnos." }, statusCode: 403));
+        return (op, null);
+    }
+
+    private static async Task<(Operator? op, IResult? fail)> RequireShiftOperatorOrAdmin(
+        CashlessContext db,
+        HttpContext http,
+        IAuthService auth)
+    {
+        var op = await auth.AuthenticateAsync(db, http.Request);
+        if (op is null) return (null, Results.Unauthorized());
+        var isAdmin = op.Role == OperatorRole.Admin || op.Role == OperatorRole.SuperAdmin;
+        var isJefeOperativo = op.Role == OperatorRole.JefeOperativo;
+        var isJefeDeBarra = op.Role == OperatorRole.JefeDeBarra;
+        var isJefeDeStand = op.Role == OperatorRole.JefeDeStand;
+        if (op.Role != OperatorRole.Cajero && !isAdmin && !isJefeOperativo && !isJefeDeBarra && !isJefeDeStand)
             return (op, Results.Json(new { message = "Forbidden." }, statusCode: 403));
         return (op, null);
     }

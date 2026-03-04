@@ -22,7 +22,7 @@ public static class PosEndpoints
             return Results.Ok(new { ok = true });
         }
         app.MapPost("/api/uid", SetUid).AllowAnonymous();
-        // DEPRECATED: usar /api/uid
+        // LEGACY ALIAS (mantener mientras haya clientes cacheados)
         app.MapPost("/uid", SetUid).AllowAnonymous();
 
         async Task<IResult> GetLastUid(IUidState uidState, HttpContext http, string? terminalId)
@@ -36,7 +36,7 @@ public static class PosEndpoints
             return Results.Ok(new { uid = resultUid });
         }
         app.MapGet("/api/last-uid", GetLastUid).AllowAnonymous();
-        // DEPRECATED: usar /api/last-uid
+        // LEGACY ALIAS (mantener mientras haya clientes cacheados)
         app.MapGet("/last-uid", GetLastUid).AllowAnonymous();
 
         app.MapGet("/balance/{uid}", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth, string uid) =>
@@ -65,6 +65,7 @@ public static class PosEndpoints
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
             var tenantId = op.TenantId;
+            var resolvedTerminalId = ResolveTerminalId(http, null);
 
             var uid = (req.Uid ?? "").Trim().ToUpperInvariant();
             if (string.IsNullOrWhiteSpace(uid)) return Results.BadRequest(new { message = "UID requerido" });
@@ -72,10 +73,21 @@ public static class PosEndpoints
 
             var card = await db.Cards.Include(c => c.User).FirstOrDefaultAsync(c => c.Uid == uid && c.TenantId == tenantId && c.User.TenantId == tenantId);
             if (card is null) return Results.NotFound(new { message = "Pulsera no asignada" });
-            if (!uidState.ConsumePendingIfMatches(uid))
+            if (!uidState.ConsumePendingIfMatches(uid, resolvedTerminalId))
                 return Results.BadRequest(new { message = "Lee la pulsera antes de confirmar la recarga" });
 
             card.User.Balance += req.Amount;
+            var openShift = await db.Shifts
+                .OrderByDescending(s => s.Id)
+                .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.CashierId == op.Id && s.Status == "Open" && s.ClosedAt == null);
+            var topupMeta = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                kind = "TOPUP",
+                cashierId = op.Id,
+                terminalId = resolvedTerminalId,
+                shiftId = openShift?.Id,
+                paymentMethod = "cash"
+            });
 
             db.Transactions.Add(new Transaction
             {
@@ -86,14 +98,16 @@ public static class PosEndpoints
                 CreatedAt = DateTimeProvider.NowMexico(),
                 TenantId = tenantId,
                 OperatorId = op.Id,
-                AreaId = op.AreaId
+                AreaId = op.AreaId,
+                ShiftId = openShift?.Id,
+                Note = topupMeta
             });
 
             await db.SaveChangesAsync();
             return Results.Ok(new { newBalance = card.User.Balance });
         }
         app.MapPost("/api/topup", TopupAsync);
-        // DEPRECATED: usar /api/topup
+        // LEGACY ALIAS (mantener mientras haya clientes cacheados)
         app.MapPost("/topup", TopupAsync);
 
         async Task<IResult> ChargeAsync(CashlessContext db, HttpContext http, IAuthService auth, IUidState uidState, ChargeRequest req)
@@ -101,13 +115,14 @@ public static class PosEndpoints
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
             var tenantId = op.TenantId;
+            var resolvedTerminalId = ResolveTerminalId(http, null);
 
             var uid = (req.Uid ?? "").Trim().ToUpperInvariant();
             if (string.IsNullOrWhiteSpace(uid)) return Results.BadRequest(new { message = "UID requerido" });
             if (req.Amount <= 0) return Results.BadRequest(new { message = "Monto invÃ¡lido" });
 
             // ?? solo 1 cobro por lectura
-            if (!uidState.ConsumePendingIfMatches(uid))
+            if (!uidState.ConsumePendingIfMatches(uid, resolvedTerminalId))
                 return Results.BadRequest(new { message = "Esta pulsera ya fue usada o no fue leÃ­da recientemente" });
 
             var card = await db.Cards.Include(c => c.User).FirstOrDefaultAsync(c => c.Uid == uid && c.TenantId == tenantId && c.User.TenantId == tenantId);
@@ -135,7 +150,7 @@ public static class PosEndpoints
             return Results.Ok(new { newBalance = card.User.Balance });
         }
         app.MapPost("/api/charge", ChargeAsync);
-        // DEPRECATED: usar /api/charge
+        // LEGACY ALIAS (mantener mientras haya clientes cacheados)
         app.MapPost("/charge", ChargeAsync);
 
         // =======================
@@ -149,19 +164,54 @@ public static class PosEndpoints
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
             var tenantId = op.TenantId;
+            var resolvedTerminalId = ResolveTerminalId(http, null);
 
             var uid = (req.Uid ?? "").Trim().ToUpperInvariant();
-            if (string.IsNullOrWhiteSpace(uid)) return Results.BadRequest(new { message = "UID requerido" });
-            if (req.AreaId <= 0) return Results.BadRequest(new { message = "AreaId invÃ¡lido" });
-            if (req.OperatorId <= 0) return Results.BadRequest(new { message = "OperatorId invÃ¡lido" });
-            if (req.Items is null || req.Items.Count == 0) return Results.BadRequest(new { message = "Items requerido" });
+            var uidShort = uid.Length >= 6 ? $"{uid[..4]}...{uid[^2..]}" : uid;
+            Console.WriteLine("[POS_CHARGE_V2] " + System.Text.Json.JsonSerializer.Serialize(new
+            {
+                phase = "recv",
+                tenantId,
+                opId = op.Id,
+                role = op.Role,
+                terminalId = resolvedTerminalId,
+                uidShort,
+                areaId = req.AreaId,
+                reqOperatorId = req.OperatorId,
+                itemsCount = req.Items?.Count ?? 0,
+                hasTenant = http.Request.Headers.ContainsKey("X-Tenant-Id"),
+                hasAuth = http.Request.Headers.ContainsKey("Authorization"),
+                hasOpToken = http.Request.Headers.ContainsKey("X-Operator-Token"),
+                hasFestival = http.Request.Headers.ContainsKey("X-Festival-Id")
+            }));
 
-            if (req.TipAmount < 0) return Results.BadRequest(new { message = "TipAmount invÃ¡lido" });
-            if (req.DonationPercent < 0 || req.DonationPercent > 100) return Results.BadRequest(new { message = "DonationPercent invÃ¡lido (0-100)" });
+            if (string.IsNullOrWhiteSpace(uid)) return Results.BadRequest(new { message = "UID requerido", details = "uid" });
+            if (req.AreaId <= 0) return Results.BadRequest(new { message = "AreaId invÃ¡lido", details = "areaId" });
+            if (req.OperatorId <= 0) return Results.BadRequest(new { message = "OperatorId invÃ¡lido", details = "operatorId" });
+            if (req.Items is null || req.Items.Count == 0) return Results.BadRequest(new { message = "Items requerido", details = "items" });
+
+            if (req.TipAmount < 0) return Results.BadRequest(new { message = "TipAmount invÃ¡lido", details = "tipAmount" });
+            if (req.DonationPercent < 0 || req.DonationPercent > 100) return Results.BadRequest(new { message = "DonationPercent invÃ¡lido (0-100)", details = "donationPercent" });
 
             // ?? solo 1 cobro por lectura
-            if (!uidState.ConsumePendingIfMatches(uid))
-                return Results.BadRequest(new { message = "Esta pulsera ya fue usada o no fue leÃ­da recientemente" });
+            if (!uidState.ConsumePendingIfMatches(uid, resolvedTerminalId))
+            {
+                Console.WriteLine("[POS_CHARGE_V2] " + System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    phase = "reject",
+                    reason = "pending_uid_mismatch",
+                    tenantId,
+                    opId = op.Id,
+                    terminalId = resolvedTerminalId,
+                    uidShort
+                }));
+                return Results.BadRequest(new
+                {
+                    message = "Esta pulsera ya fue usada o no fue leída recientemente",
+                    details = "pending_uid_mismatch",
+                    terminalId = resolvedTerminalId
+                });
+            }
 
             var card = await db.Cards.Include(c => c.User).FirstOrDefaultAsync(c => c.Uid == uid && c.TenantId == tenantId && c.User.TenantId == tenantId);
             if (card is null) return Results.NotFound(new { message = "Pulsera no asignada" });
@@ -288,6 +338,18 @@ public static class PosEndpoints
 
             await db.SaveChangesAsync();
 
+            Console.WriteLine("[POS_CHARGE_V2] " + System.Text.Json.JsonSerializer.Serialize(new
+            {
+                phase = "ok",
+                tenantId,
+                opId = op.Id,
+                terminalId = resolvedTerminalId,
+                uidShort,
+                itemsCount = req.Items?.Count ?? 0,
+                total = grandTotal,
+                newBalance = card.User.Balance
+            }));
+
             return Results.Ok(new
             {
                 ok = true,
@@ -300,7 +362,7 @@ public static class PosEndpoints
             });
         }
         app.MapPost("/api/charge-v2", ChargeV2Async);
-        // DEPRECATED: usar /api/charge-v2
+        // LEGACY ALIAS (mantener mientras haya clientes cacheados)
         app.MapPost("/charge-v2", ChargeV2Async);
 
         return app;

@@ -142,6 +142,137 @@ async function apiGetCardByUid(uid){
   return await apiJson(`/api/cards/${encodeURIComponent(clean)}`, { method: "GET" });
 }
 
+function syncInventoryFromSale(areaId, saleItems){
+  void areaId;
+  void saleItems;
+}
+
+const PERMISSIONS_STORAGE_KEY = "cashless.permissions.schema.v1";
+
+function normalizeRoleName(role){
+  const raw = String(role || "").trim().toLowerCase().replace(/[\s_\-]/g, "");
+  if(raw === "superadmin") return "SuperAdmin";
+  if(raw === "admin") return "Admin";
+  if(raw === "jefeoperativo" || raw === "jefedecaja") return "JefeOperativo";
+  if(raw === "jefedebarra") return "JefeDeBarra";
+  if(raw === "jefedestand") return "JefeDeStand";
+  if(raw === "cajerodebarra" || raw === "bartender") return "CajeroDeBarra";
+  if(raw === "cajero" || raw === "cashier") return "Cajero";
+  return "";
+}
+
+function defaultPermissionSchema(){
+  return {
+    roles: ["SuperAdmin", "Admin", "JefeOperativo", "JefeDeBarra", "JefeDeStand", "CajeroDeBarra", "Cajero"],
+    permissions: [
+      { key:"dashboard_view", title:"Ver dashboard", desc:"Acceso al panel principal." },
+      { key:"pos_use", title:"Usar POS", desc:"Cobrar con pulsera en barra o stand." },
+      { key:"topup", title:"Recargar saldo", desc:"Hacer recargas de saldo a pulseras." },
+      { key:"charge", title:"Cobrar", desc:"Aplicar cargos a pulseras." },
+      { key:"users_manage", title:"Usuarios", desc:"Crear o editar usuarios y asignar pulseras." },
+      { key:"areas_manage", title:"Barras / Areas", desc:"Crear o editar barras, stands y tipos." },
+      { key:"products_manage", title:"Productos", desc:"Administrar catalogo de productos." },
+      { key:"menus_manage", title:"Menus por barra", desc:"Asignar productos por barra." },
+      { key:"operators_manage", title:"Colaboradores", desc:"Crear o editar colaboradores." },
+      { key:"reports_view", title:"Reportes", desc:"Ver estadisticas y cortes." },
+      { key:"permissions_view", title:"Ver permisos", desc:"Consultar la matriz de permisos." },
+      { key:"permissions_manage", title:"Administrar permisos", desc:"Editar permisos por rol y asignar roles." }
+    ],
+    matrix: {
+      SuperAdmin: {
+        dashboard_view:true, pos_use:true, topup:true, charge:true, users_manage:true, areas_manage:true,
+        products_manage:true, menus_manage:true, operators_manage:true, reports_view:true, permissions_view:true, permissions_manage:true
+      },
+      Admin: {
+        dashboard_view:true, pos_use:true, topup:true, charge:true, users_manage:true, areas_manage:true,
+        products_manage:true, menus_manage:true, operators_manage:true, reports_view:true, permissions_view:true, permissions_manage:false
+      },
+      JefeOperativo: {
+        dashboard_view:true, pos_use:false, topup:true, charge:false, users_manage:true, areas_manage:true,
+        products_manage:true, menus_manage:true, operators_manage:false, reports_view:true, permissions_view:true, permissions_manage:false
+      },
+      JefeDeBarra: {
+        dashboard_view:true, pos_use:true, topup:false, charge:true, users_manage:false, areas_manage:true,
+        products_manage:false, menus_manage:true, operators_manage:false, reports_view:true, permissions_view:false, permissions_manage:false
+      },
+      JefeDeStand: {
+        dashboard_view:true, pos_use:true, topup:false, charge:true, users_manage:false, areas_manage:true,
+        products_manage:false, menus_manage:true, operators_manage:false, reports_view:true, permissions_view:false, permissions_manage:false
+      },
+      CajeroDeBarra: {
+        dashboard_view:false, pos_use:true, topup:false, charge:true, users_manage:false, areas_manage:false,
+        products_manage:false, menus_manage:false, operators_manage:false, reports_view:false, permissions_view:false, permissions_manage:false
+      },
+      Cajero: {
+        dashboard_view:true, pos_use:false, topup:true, charge:false, users_manage:true, areas_manage:false,
+        products_manage:false, menus_manage:false, operators_manage:false, reports_view:false, permissions_view:false, permissions_manage:false
+      }
+    }
+  };
+}
+
+function getPermissionSchema(){
+  const fallback = defaultPermissionSchema();
+  const raw = localStorage.getItem(PERMISSIONS_STORAGE_KEY);
+  if(!raw) return fallback;
+  try{
+    const parsed = JSON.parse(raw);
+    if(!parsed || !Array.isArray(parsed.roles) || !Array.isArray(parsed.permissions) || typeof parsed.matrix !== "object"){
+      return fallback;
+    }
+    const roles = Array.from(new Set([...(parsed.roles || []), ...(fallback.roles || [])]));
+    const permissionMap = new Map();
+    for(const item of [...(parsed.permissions || []), ...(fallback.permissions || [])]){
+      if(item && item.key && !permissionMap.has(item.key)) permissionMap.set(item.key, item);
+    }
+    const matrix = { ...(parsed.matrix || {}) };
+    for(const roleName of fallback.roles){
+      if(!matrix[roleName] || typeof matrix[roleName] !== "object"){
+        matrix[roleName] = { ...(fallback.matrix?.[roleName] || {}) };
+      }
+    }
+    return {
+      ...parsed,
+      roles,
+      permissions: Array.from(permissionMap.values()),
+      matrix
+    };
+  }catch{
+    return fallback;
+  }
+}
+
+function savePermissionSchema(schema){
+  localStorage.setItem(PERMISSIONS_STORAGE_KEY, JSON.stringify(schema));
+}
+
+function resetPermissionSchema(){
+  localStorage.removeItem(PERMISSIONS_STORAGE_KEY);
+}
+
+function roleHasPermission(permissionKey, role){
+  const schema = getPermissionSchema();
+  const roleName = normalizeRoleName(role || getSession()?.role || getSession()?.Role);
+  if(!roleName) return false;
+  if(permissionKey === "areas_manage" && (roleName === "JefeDeBarra" || roleName === "JefeDeStand")) return true;
+  return !!schema?.matrix?.[roleName]?.[permissionKey];
+}
+
+function currentRoleName(){
+  return normalizeRoleName(getSession()?.role || getSession()?.Role);
+}
+
+function currentUserCan(permissionKey){
+  return roleHasPermission(permissionKey, currentRoleName());
+}
+
+function requireUiPermission(permissionKey, redirectTo = "/dashboard.html"){
+  requireSession();
+  if(currentUserCan(permissionKey)) return true;
+  window.location.href = redirectTo;
+  throw new Error(`Missing UI permission: ${permissionKey}`);
+}
+
 function renderAppMenu(containerId, currentPath = ""){
   const host = $(containerId);
   if(!host) return;
@@ -156,32 +287,40 @@ function renderAppMenu(containerId, currentPath = ""){
     ["Barras", "/barras.html"],
     ["Menus", "/menus.html"],
     ["Colaboradores", "/operators.html"],
-    ["Usuarios", "/usuarios.html"],
+    ["Usuarios", "/registro-usuarios.html"],
+    ["Transferencias", "/transferencias-saldo.html"],
+    ["Lista de precios", "/lista-precios.html"],
     ["Recargas", "/recargas.html"],
     ["Ventas", "/ventas.html"],
     ["Festivales", "/festivales.html"],
+    ["Permisos", "/permisos.html"],
+    ["Asignacion", "/asignacion-roles.html"],
     ["Mapa", "/app-map.html"],
-    ["Reportes", "/reports.html"],
-    ["Reportes generales", "/reports-summary.html"]
+    ["Reportes", "/reports.html"]
   ];
 
-  const roleRaw = String(getSession()?.role || getSession()?.Role || "").trim().toLowerCase();
-  const role = roleRaw.replace(/[\s_\-]/g, "");
-  const isAdmin = role === "admin" || role === "superadmin";
-  const isBarManager = role === "jefedebarra" || role === "jefedestand";
-  const isCashier = role === "cashier" || role === "cajero" || role === "jefedecaja";
-
-  const allowByRole = {
-    admin: new Set(links.map(([label]) => label)),
-    bar: new Set(["Dashboard", "POS", "Barras", "Menus", "Recargas", "Reportes"]),
-    cashier: new Set(["Cajero", "Recargas", "Reportes (Cajero)"])
-  };
+  const roleName = normalizeRoleName(getSession()?.role || getSession()?.Role);
+  const isAdmin = roleName === "Admin" || roleName === "SuperAdmin";
+  const isCashier = roleName === "Cajero";
 
   const allowed = links.filter(([label]) => {
-    if(isAdmin) return allowByRole.admin.has(label);
-    if(isBarManager) return allowByRole.bar.has(label);
-    if(isCashier) return allowByRole.cashier.has(label);
-    return label === "Dashboard" || label === "POS" || label === "Recargas";
+    if(label === "Dashboard") return roleHasPermission("dashboard_view", roleName);
+    if(label === "Cajero") return isCashier || roleHasPermission("topup", roleName);
+    if(label === "POS") return roleHasPermission("pos_use", roleName) || roleHasPermission("charge", roleName);
+    if(label === "Barras") return roleHasPermission("areas_manage", roleName);
+    if(label === "Menus") return roleHasPermission("menus_manage", roleName) || roleName === "JefeDeBarra" || roleName === "JefeDeStand";
+    if(label === "Colaboradores") return roleHasPermission("operators_manage", roleName);
+    if(label === "Usuarios") return roleHasPermission("users_manage", roleName);
+    if(label === "Transferencias") return roleHasPermission("users_manage", roleName);
+    if(label === "Lista de precios") return true;
+    if(label === "Recargas") return roleHasPermission("topup", roleName);
+    if(label === "Ventas") return roleHasPermission("reports_view", roleName);
+    if(label === "Festivales") return isAdmin;
+    if(label === "Permisos") return roleHasPermission("permissions_view", roleName);
+    if(label === "Asignacion") return roleHasPermission("permissions_view", roleName);
+    if(label === "Mapa") return isAdmin;
+    if(label === "Reportes") return roleHasPermission("reports_view", roleName);
+    return false;
   });
 
   const normalizePath = (p) => String(p || "").toLowerCase();
@@ -202,8 +341,10 @@ function renderCashierMenu(containerId, currentPath = ""){
   </div>`;
 
   const links = [
-    ["Cajero", "/dashboard-caja/"],
     ["Recargas", "/recargas.html"],
+    ["Usuarios", "/registro-usuarios.html"],
+    ["Transferencias", "/transferencias-saldo.html"],
+    ["Lista de precios", "/lista-precios.html"],
     ["Reportes (Cajero)", "/dashboard-caja/reportes.html"],
     ["Cerrar sesion", "__logout__"]
   ];

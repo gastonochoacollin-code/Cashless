@@ -2,8 +2,7 @@
 (() => {
   const el = (id) => document.getElementById(id);
   const FILTER_KEY = "cashless.reports.filters";
-  const role = String(getSession()?.role || getSession()?.Role || "").trim().toLowerCase();
-  const isCashier = role === "cajero" || role === "cashier";
+  requireUiPermission("reports_view");
 
   const money = (n) => Number(n || 0).toLocaleString("es-MX", { style:"currency", currency:"MXN" });
   const intFmt = (n) => Number(n || 0).toLocaleString("es-MX");
@@ -20,20 +19,36 @@
     return status > 0 ? `ERROR ${status}: ${msg}` : `ERROR: ${msg}`;
   }
 
+  function defaultDates(){
+    const t = new Date();
+    const f = new Date(t);
+    f.setDate(t.getDate() - 6);
+    return { from: f.toISOString().slice(0,10), to: t.toISOString().slice(0,10), areaId: "", operatorId: "" };
+  }
+
+
   function loadFilters(){
     const raw = sessionStorage.getItem(FILTER_KEY);
-    if(!raw) return null;
-    try{ return JSON.parse(raw); }catch{ return null; }
+    if(!raw) return defaultDates();
+    try{ return { ...defaultDates(), ...JSON.parse(raw) }; }catch{ return defaultDates(); }
+  }
+
+  function saveFilters(f){
+    sessionStorage.setItem(FILTER_KEY, JSON.stringify(f));
   }
 
   async function loadFestivalInfo(){
     const target = el("festivalInfo");
     if(!target) return;
     try{
-      const list = await apiJson("/api/festivals", { method: "GET" });
-      const active = Array.isArray(list)
-        ? list.find(x => (x.isActive ?? x.IsActive) === true)
-        : null;
+      let list = null;
+      try{
+        list = await apiJson("/api/festivals/for-cashier", { method: "GET" });
+      }catch(e){
+        if(Number(e?.status || 0) !== 404) throw e;
+        list = await apiJson("/api/festivals", { method: "GET" });
+      }
+      const active = Array.isArray(list) ? list.find(x => (x.isActive ?? x.IsActive) === true) : null;
       if(active){
         const id = active.id ?? active.Id;
         const name = active.name ?? active.Name ?? `Festival ${id}`;
@@ -49,48 +64,16 @@
     }
   }
 
-  function normalizeSummary(s){
-    if (!s || typeof s !== "object") return null;
-    if ("totalVendido" in s){
-      return {
-        totalVendido: s.totalVendido,
-        totalPropina: s.totalPropina ?? 0,
-        usuarios: s.usuarios ?? s.userCount ?? 0,
-        transacciones: s.transacciones ?? s.txCount ?? 0
-      };
-    }
-    return {
-      totalVendido: s.totalSold ?? 0,
-      totalPropina: s.totalTips ?? 0,
-      usuarios: s.userCount ?? 0,
-      transacciones: s.txCount ?? 0
-    };
-  }
-
   function renderSummary(s){
-    el("kpiTotalSold").textContent = money(s.totalVendido);
-    el("kpiTips").textContent = money(s.totalPropina);
-    el("kpiUsers").textContent = intFmt(s.usuarios);
-    el("kpiTx").textContent = intFmt(s.transacciones);
-  }
-
-  function configureCashierUi(){
-    el("kpiLabel1").textContent = "Total recargado";
-    el("kpiLabel2").textContent = "Total recargas";
-    el("kpiLabel3").textContent = "Efectivo";
-    el("kpiLabel4").textContent = "Turno actual";
-    el("sectionTitle").textContent = "Desglose por metodo";
-    el("sectionDesc").textContent = "Recargas del cajero en el rango.";
-    el("th1").textContent = "Metodo";
-    el("th2").textContent = "Monto";
-    el("th3").textContent = "Detalle";
-    el("th4").textContent = "-";
-    el("th5").textContent = "-";
+    el("kpiTotalSold").textContent = money(s.totalSold || 0);
+    el("kpiTips").textContent = money(s.totalTips || 0);
+    el("kpiUsers").textContent = intFmt(s.userCount || 0);
+    el("kpiTx").textContent = intFmt(s.txCount || 0);
   }
 
   function renderSalesByArea(rows){
     const body = el("salesByAreaBody");
-    if (!rows || rows.length === 0){
+    if(!rows || rows.length === 0){
       body.innerHTML = `<tr><td colspan="5">Sin datos</td></tr>`;
       return;
     }
@@ -105,131 +88,55 @@
     `).join("");
   }
 
-  function renderCashierSummary(data){
-    const totalRecargado = Number(data?.totalRecargado || 0);
-    const totalRecargas = Number(data?.totalRecargas || 0);
-    const breakdown = data?.breakdown || {};
-    const currentShift = data?.currentShift || null;
-
-    el("kpiTotalSold").textContent = money(totalRecargado);
-    el("kpiTips").textContent = intFmt(totalRecargas);
-    el("kpiUsers").textContent = money(breakdown.efectivo || 0);
-    el("kpiTx").textContent = currentShift?.shiftId ? `#${currentShift.shiftId}` : "Sin turno";
-
-    const rows = [
-      { method: "EFECTIVO", amount: Number(breakdown.efectivo || 0), detail: `${intFmt(totalRecargas)} recargas` },
-      { method: "TARJETA", amount: Number(breakdown.tarjeta || 0), detail: "-" },
-      { method: "CRIPTO", amount: Number(breakdown.cripto || 0), detail: "-" },
-      { method: "TRANSFERENCIA", amount: Number(breakdown.transferencia || 0), detail: "-" },
-      { method: "OTRO", amount: Number(breakdown.otro || 0), detail: "-" }
-    ];
-
-    const body = el("salesByAreaBody");
-    body.innerHTML = rows.map(r => `
-      <tr>
-        <td>${r.method}</td>
-        <td>${money(r.amount)}</td>
-        <td>${r.detail}</td>
-        <td>-</td>
-        <td>-</td>
-      </tr>
-    `).join("");
-
-    el("btnExport").onclick = () => {
-      const head = ["metodo","monto","detalle"];
-      const lines = [head.join(",")];
-      rows.forEach(r => lines.push([r.method, r.amount, JSON.stringify(r.detail)].join(",")));
-      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "resumen_recargas_cajero.csv";
-      a.click();
-      URL.revokeObjectURL(url);
-    };
+  function preparePrint(){
+    const festivalText = el("festivalInfo")?.textContent || "Festival: -";
+    const rangeText = el("rangePill")?.textContent || "-";
+    if(el("printFestival")) el("printFestival").textContent = festivalText;
+    if(el("printRange")) el("printRange").textContent = rangeText;
+    if(el("printGenerated")) el("printGenerated").textContent = new Date().toLocaleString();
   }
-
-  function exportCsv(rows){
-    const head = ["area","ventas","propina","tx","ticket_promedio"];
-    const lines = [head.join(",")];
-    for(const r of rows){
-      lines.push([
-        JSON.stringify(r.areaName || `Area ${r.areaId ?? ""}`),
-        r.totalSold ?? 0,
-        r.totalTips ?? 0,
-        r.txCount ?? 0,
-        r.avgTicket ?? 0
-      ].join(","));
-    }
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "reportes_resumen.csv";
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  window.preparePrint = function(){
-    const festivalEl = el("festivalInfo");
-    const rangeEl = el("rangePill");
-    const pf = el("printFestival");
-    const pr = el("printRange");
-    const pg = el("printGenerated");
-    if(pf) pf.textContent = festivalEl?.textContent || "-";
-    if(pr) pr.textContent = rangeEl?.textContent || "-";
-    if(pg) pg.textContent = new Date().toLocaleString();
-  };
 
   async function load(){
     setMsg("");
-    const f = loadFilters() || {};
-    const from = f.from || new Date().toISOString().slice(0,10);
-    const to = f.to || new Date().toISOString().slice(0,10);
+    const f = loadFilters();
+    const from = f.from;
+    const to = f.to;
     const areaId = f.areaId || "";
-
     el("rangePill").textContent = `${from} -> ${to}`;
 
-    const qs = new URLSearchParams({ from, to });
+    const qs = new URLSearchParams({ from, to, ts: Date.now().toString() });
     if(areaId) qs.set("areaId", areaId);
-
-    if(isCashier){
-      configureCashierUi();
-      const summary = await apiJson(`/api/reports/cashier/summary?${new URLSearchParams({ from, to }).toString()}`, { method: "GET" });
-      renderCashierSummary(summary || {});
-      return;
-    }
-
-    const summary = await apiJson(`/api/reports/summary?${qs.toString()}`, { method: "GET" });
-    const byArea = await apiJson(`/api/reports/sales-by-area?${new URLSearchParams({ from, to }).toString()}`, { method: "GET" });
-
-    const norm = normalizeSummary(summary);
-    renderSummary(norm || { totalVendido: 0, totalPropina: 0, usuarios: 0, transacciones: 0 });
-    renderSalesByArea(byArea || []);
-    el("btnExport").onclick = () => exportCsv(byArea || []);
-
-    if((byArea || []).length === 0){
-      setMsg("Sin datos para el rango/festival actual.");
+    try{
+      const summary = await apiJson(`/api/reports/summary?${qs.toString()}`, { method: "GET" });
+      const byAreaRaw = await apiJson(`/api/reports/sales-by-area?${qs.toString()}`, { method: "GET" });
+      const byArea = areaId
+        ? (byAreaRaw || []).filter(r => String(r.areaId ?? "") === String(areaId))
+        : byAreaRaw;
+      renderSummary(summary || {});
+      renderSalesByArea(byArea || []);
+      setMsg((byArea || []).length ? "OK" : "Sin datos para el rango actual.");
+    }catch(err){
+      renderSummary({ totalSold: 0, totalTips: 0, userCount: 0, txCount: 0 });
+      renderSalesByArea([]);
+      setMsg(errLabel(err));
     }
   }
 
-  document.addEventListener("DOMContentLoaded", () => {
+  document.addEventListener("DOMContentLoaded", async () => {
     requireSession();
     if (typeof renderAppMenu === "function") {
       renderAppMenu("appMenu", "/reports-summary.html");
     }
-    loadFestivalInfo();
-    el("btnReload").addEventListener("click", () => load());
-    load().catch(err => {
-      console.error("Reports summary error:", err);
-      renderSummary({ totalVendido: 0, totalPropina: 0, usuarios: 0, transacciones: 0 });
-      renderSalesByArea([]);
-      const status = Number(err?.status || 0);
-      if(status === 403){
-        setMsg("ERROR 403: Sin permiso para este reporte. Usa Resumen de recargas.");
-      }else{
-        setMsg(errLabel(err));
-      }
+    await loadFestivalInfo();
+    const d = loadFilters();
+    el("fromDate").value = d.from;
+    el("toDate").value = d.to;
+    el("btnApply").addEventListener("click", () => {
+      saveFilters({ ...loadFilters(), from: el("fromDate").value, to: el("toDate").value });
+      load();
     });
+    el("btnReload").addEventListener("click", () => load());
+    el("btnPrint").addEventListener("click", () => { preparePrint(); window.print(); });
+    load();
   });
 })();

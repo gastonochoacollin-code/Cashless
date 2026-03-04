@@ -144,9 +144,11 @@ public static class RechargesEndpoints
 
         if (op.Role == OperatorRole.Cajero && shift.CashierId != op.Id)
             return Results.Json(new { message = "Forbidden. Solo puedes ver tu propio corte." }, statusCode: 403);
+        Console.WriteLine($"[SHIFT_CLOSEOUT] endpoint=summary tenantId={tenantId} opId={op.Id} role={op.Role} shiftId={shiftId} targetCashierId={shift.CashierId} physicalCash={(physicalCash?.ToString() ?? "null")}");
 
         var rows = await LoadShiftRowsAsync(db, shift, tenantId);
         var summary = BuildShiftSummary(shift, rows, physicalCash);
+        Console.WriteLine($"[SHIFT_CLOSEOUT] endpoint=summary shiftId={shiftId} rows={rows.Count} totalRecargado={summary.TotalRecargado}");
         return Results.Ok(summary);
     }
 
@@ -167,9 +169,11 @@ public static class RechargesEndpoints
         if (shift is null) return Results.NotFound(new { message = "Shift no existe." });
         if (op.Role == OperatorRole.Cajero && shift.CashierId != op.Id)
             return Results.Json(new { message = "Forbidden. Solo puedes ver tu propio corte." }, statusCode: 403);
+        Console.WriteLine($"[SHIFT_CLOSEOUT] endpoint=reconcile tenantId={tenantId} opId={op.Id} role={op.Role} shiftId={shiftId} targetCashierId={shift.CashierId} physicalCash={req.PhysicalCash}");
 
         var rows = await LoadShiftRowsAsync(db, shift, tenantId);
         var summary = BuildShiftSummary(shift, rows, req.PhysicalCash);
+        Console.WriteLine($"[SHIFT_CLOSEOUT] endpoint=reconcile shiftId={shiftId} rows={rows.Count} totalRecargado={summary.TotalRecargado}");
         return Results.Ok(summary);
     }
 
@@ -190,6 +194,7 @@ public static class RechargesEndpoints
         if (shift is null) return Results.NotFound(new { message = "Shift no existe." });
         if (op.Role == OperatorRole.Cajero && shift.CashierId != op.Id)
             return Results.Json(new { message = "Forbidden. Solo puedes ver tu propio corte." }, statusCode: 403);
+        Console.WriteLine($"[SHIFT_CLOSEOUT] endpoint=pdf-model tenantId={tenantId} opId={op.Id} role={op.Role} shiftId={shiftId} targetCashierId={shift.CashierId} physicalCash={(physicalCash?.ToString() ?? "null")}");
 
         var rows = await LoadShiftRowsAsync(db, shift, tenantId);
         var summary = BuildShiftSummary(shift, rows, physicalCash);
@@ -217,6 +222,7 @@ public static class RechargesEndpoints
                 ["Header"] = $"Cajero: {summary.Cashier} (Id: {summary.CashierId})"
             }
         };
+        Console.WriteLine($"[SHIFT_CLOSEOUT] endpoint=pdf-model shiftId={shiftId} rows={rows.Count} totalRecargado={summary.TotalRecargado}");
 
         return Results.Ok(pdfModel);
     }
@@ -242,12 +248,16 @@ public static class RechargesEndpoints
                 t.Amount,
                 t.Note,
                 t.CreatedAt,
-                t.CardUid
+                t.CardUid,
+                t.ShiftId
             })
             .ToListAsync();
+        var directTopups = topups.Count(t => t.ShiftId == shift.Id);
+        var legacyTopups = topups.Count - directTopups;
 
         if (topups.Count > 0)
         {
+            Console.WriteLine($"[SHIFT_CLOSEOUT_ROWS] tenantId={tenantId} shiftId={shift.Id} cashierId={shift.CashierId} source=transactions topups={topups.Count} direct={directTopups} legacyWindow={legacyTopups}");
             return topups.Select(t => new ShiftChargeRow(
                 t.Id,
                 t.Amount,
@@ -270,6 +280,7 @@ public static class RechargesEndpoints
             .OrderBy(r => r.CreatedAt)
             .Select(r => new ShiftChargeRow(r.Id, r.Amount, r.PaymentMethod, r.PaymentDetail, r.Comment, r.CreatedAt, r.CardUid))
             .ToListAsync();
+        Console.WriteLine($"[SHIFT_CLOSEOUT_ROWS] tenantId={tenantId} shiftId={shift.Id} cashierId={shift.CashierId} source=recharges rows={recharges.Count}");
 
         return recharges;
     }

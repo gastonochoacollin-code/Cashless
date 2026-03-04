@@ -1,5 +1,11 @@
 // CAUSA (P0): En el cambio de terminalId se perdiÃ³ este helper y el JS tronaba con ReferenceError,
 // evitando cualquier llamada a /api/users. FIX: restaurar $() y documentar la ruta de Network.
+requireUiPermission("users_manage");
+const redirectRoleName = typeof currentRoleName === "function" ? currentRoleName() : "";
+if(redirectRoleName === "Cajero" || redirectRoleName === "JefeOperativo"){
+  window.location.replace("/registro-usuarios.html");
+  throw new Error("Redirecting to registro-usuarios");
+}
 function $(id){ return document.getElementById(id); }
 
 // Evidencia/diagnostico: capturar errores tempranos de inicializacion
@@ -27,6 +33,11 @@ const userModal = $("userModal");
 const btnCloseUserModal = $("btnCloseUserModal");
 const btnCreateUser = $("btnCreateUser");
 const createUserMsg = $("createUserMsg");
+const userModalHelpEl = $("userModalHelp");
+const newNameEl = $("newName");
+const newEmailEl = $("newEmail");
+const newPhoneEl = $("newPhone");
+const systemUserFieldsEl = $("systemUserFields");
 const newDisplayNameEl = $("newDisplayName");
 const newUsernameEl = $("newUsername");
 const newPinEl = $("newPin");
@@ -104,6 +115,14 @@ function getSession(){
 }
 
 function isAdminRole(role){
+  if(typeof roleHasPermission === "function"){
+    return roleHasPermission("users_manage", role);
+  }
+  const r = String(role || "").trim().toLowerCase();
+  return r === "admin" || r === "superadmin" || r === "jefeoperativo";
+}
+
+function canCreateSystemUsers(role){
   const r = String(role || "").trim().toLowerCase();
   return r === "admin" || r === "superadmin";
 }
@@ -155,6 +174,7 @@ function setCreateUserMsg(msg, isError=false){
 
 function openUserModal(){
   if(!userModal) return;
+  syncUserModalMode();
   userModal.classList.add("open");
   userModal.setAttribute("aria-hidden", "false");
   setCreateUserMsg("");
@@ -167,7 +187,33 @@ function closeUserModal(){
   setCreateUserMsg("");
 }
 
+function wantsSystemUserPayload(){
+  return !!(
+    (newDisplayNameEl?.value || "").trim()
+    || (newUsernameEl?.value || "").trim()
+    || (newPinEl?.value || "").trim()
+    || (newRoleEl?.value || "").trim()
+  );
+}
+
+function syncUserModalMode(){
+  const canManageSystemUsers = canCreateSystemUsers(session?.role);
+  if(systemUserFieldsEl) systemUserFieldsEl.style.display = canManageSystemUsers ? "" : "none";
+  if(userModalHelpEl){
+    userModalHelpEl.textContent = canManageSystemUsers
+      ? "Crea usuarios del festival. Si llenas datos de sistema, se crea un colaborador."
+      : "Crea usuarios del festival para registro y asignacion de pulseras.";
+  }
+}
+
 function validateNewUser(){
+  const canManageSystemUsers = canCreateSystemUsers(session?.role);
+  if(!canManageSystemUsers || !wantsSystemUserPayload()){
+    const name = (newNameEl?.value || "").trim();
+    if(!name) return "Nombre requerido.";
+    return "";
+  }
+
   const username = (newUsernameEl?.value || "").trim();
   const displayName = (newDisplayNameEl?.value || "").trim();
   const pin = (newPinEl?.value || "").trim();
@@ -189,21 +235,37 @@ async function createUser(){
   const err = validateNewUser();
   if(err) { setCreateUserMsg(err, true); return; }
 
-  const payload = {
-    displayName: (newDisplayNameEl?.value || "").trim(),
-    username: (newUsernameEl?.value || "").trim(),
-    pin: (newPinEl?.value || "").trim(),
-    role: (newRoleEl?.value || "").trim(),
-    isActive: !!newIsActiveEl?.checked
-  };
+  const canManageSystemUsers = canCreateSystemUsers(session?.role);
+  const isSystemUser = canManageSystemUsers && wantsSystemUserPayload();
+  const payload = isSystemUser
+    ? {
+        displayName: (newDisplayNameEl?.value || "").trim(),
+        username: (newUsernameEl?.value || "").trim(),
+        pin: (newPinEl?.value || "").trim(),
+        role: (newRoleEl?.value || "").trim(),
+        isActive: !!newIsActiveEl?.checked
+      }
+    : {
+        name: (newNameEl?.value || "").trim(),
+        email: (newEmailEl?.value || "").trim() || null,
+        phone: (newPhoneEl?.value || "").trim() || null
+      };
 
-  setCreateUserMsg("Creando usuario...");
+  setCreateUserMsg(isSystemUser ? "Creando colaborador..." : "Creando usuario...");
   try{
     const created = await api("/api/users", {
       method: "POST",
       body: JSON.stringify(payload)
     });
     setCreateUserMsg(`OK - Usuario creado (#${created?.id || "?"})`);
+    if(newNameEl) newNameEl.value = "";
+    if(newEmailEl) newEmailEl.value = "";
+    if(newPhoneEl) newPhoneEl.value = "";
+    if(newDisplayNameEl) newDisplayNameEl.value = "";
+    if(newUsernameEl) newUsernameEl.value = "";
+    if(newPinEl) newPinEl.value = "";
+    if(newRoleEl) newRoleEl.value = "";
+    if(newIsActiveEl) newIsActiveEl.checked = true;
     await refresh();
     closeUserModal();
   }catch(e){
@@ -613,10 +675,11 @@ function init(){
   if(btnNewUser){
     if(!isAdminRole(session?.role)){
       btnNewUser.disabled = true;
-      btnNewUser.title = "Solo Admin/SuperAdmin";
+      btnNewUser.title = "Sin permiso para crear usuarios";
     }
     btnNewUser.addEventListener("click", openUserModal);
   }
+  syncUserModalMode();
   btnCloseUserModal?.addEventListener("click", closeUserModal);
   userModal?.addEventListener("click", (ev) => {
     if(ev.target === userModal) closeUserModal();
@@ -663,5 +726,7 @@ try{
   console.error("USERS_INIT_FAIL", e);
   setStatus(`ERROR JS: ${String(e?.message || "init error")} (revisa consola)`, true);
 }
+
+
 
 

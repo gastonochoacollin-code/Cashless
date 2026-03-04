@@ -14,15 +14,39 @@ public sealed class ReportService : IReportService
         _logger = logger;
     }
 
+    private static IQueryable<Transaction> TxForTenant(CashlessContext db, int tenantId)
+        => db.Transactions.Where(t => t.TenantId == tenantId || t.TenantId == 0);
+
+    private static IQueryable<Sale> SalesForTenant(CashlessContext db, int tenantId)
+        => db.Sales.Where(s => s.TenantId == tenantId || s.TenantId == 0);
+
+    private static IQueryable<User> UsersForTenant(CashlessContext db, int tenantId)
+        => db.Users.Where(u => u.TenantId == tenantId || u.TenantId == 0);
+
+    private static string GetKind(string? note)
+    {
+        if (string.IsNullOrWhiteSpace(note)) return "LEGACY";
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(note);
+            if (doc.RootElement.TryGetProperty("kind", out var k))
+                return (k.GetString() ?? string.Empty).Trim().ToUpperInvariant();
+        }
+        catch
+        {
+        }
+        return "LEGACY";
+    }
+
     public async Task<Report1SummaryResult> GetReports1SummaryAsync(CashlessContext db, int tenantId, DateTimeOffset fromDt, DateTimeOffset toDt, int? areaId)
     {
-        var from = fromDt.UtcDateTime;
-        var to = toDt.UtcDateTime;
+        var from = fromDt.DateTime;
+        var to = toDt.DateTime;
 
         // ?? OJO: ajusta nombres si tus entidades difieren:
         // Ventas: idealmente desde Sales (si existe)
-        var salesQ = db.Sales.AsQueryable()
-            .Where(s => s.TenantId == tenantId && s.CreatedAt >= from && s.CreatedAt < to);
+        var salesQ = SalesForTenant(db, tenantId)
+            .Where(s => s.CreatedAt >= from && s.CreatedAt < to);
 
         if (areaId.HasValue) salesQ = salesQ.Where(s => s.AreaId == areaId.Value);
 
@@ -31,7 +55,7 @@ public sealed class ReportService : IReportService
         var totalDonacion = ToDecimal(await salesQ.SumAsync(s => (double?)s.DonationAmount));
         var txCount = await salesQ.CountAsync();
 
-        var userCount = await db.Users.Where(u => u.TenantId == tenantId).CountAsync(); // total usuarios
+        var userCount = await UsersForTenant(db, tenantId).CountAsync(); // total usuarios
 
         _logger.LogDebug("[reports1.summary] from={From} to={To} areaId={AreaId} txCount={TxCount} totalVendido={TotalVendido} totalPropina={TotalPropina} totalDonacion={TotalDonacion}",
             from, to, areaId, txCount, totalVendido, totalPropina, totalDonacion);
@@ -51,27 +75,44 @@ public sealed class ReportService : IReportService
 
     public async Task<ReportSummaryResult> GetReportsSummaryAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to, int? areaId)
     {
-        var fromUtc = from.UtcDateTime;
-        var toUtc = to.UtcDateTime;
+        var fromUtc = from.DateTime;
+        var toUtc = to.DateTime;
 
-        var userCount = await db.Users.Where(u => u.TenantId == tenantId).CountAsync();
+        var userCount = await UsersForTenant(db, tenantId).CountAsync();
 
-        var chargesQ = db.Transactions
-            .Where(x => x.TenantId == tenantId && x.Type == TransactionType.Charge && x.CreatedAt >= fromUtc && x.CreatedAt <= toUtc);
+        var chargesQ = TxForTenant(db, tenantId)
+            .Where(x => x.Type == TransactionType.Charge && x.CreatedAt >= fromUtc && x.CreatedAt < toUtc);
 
         if (areaId.HasValue)
             chargesQ = chargesQ.Where(x => x.AreaId == areaId.Value);
 
-        var txCount = await chargesQ.CountAsync();
+        var txRows = await chargesQ
+            .Select(x => new { x.Amount, x.Note })
+            .ToListAsync();
 
-        // Total vendido = suma de cargos (mismo criterio que ventas por barra)
-        var totalSold = ToDecimal(await chargesQ.SumAsync(x => (double?)x.Amount));
+        int txCount = 0;
+        decimal totalSold = 0m;
+        decimal totalTips = 0m;
+        decimal totalDonations = 0m;
 
-        // Propinas / donaciones si existen en la transacción
-        var totalTips = ToDecimal(await chargesQ.SumAsync(x => (double?)x.TipAmount));
-        var totalDonations = ToDecimal(await chargesQ.SumAsync(x => (double?)x.DonationAmount));
+        foreach (var tx in txRows)
+        {
+            var kind = GetKind(tx.Note);
+            if (kind == "TIP")
+            {
+                totalTips += tx.Amount;
+            }
+            else if (kind == "DONATION")
+            {
+                totalDonations += tx.Amount;
+            }
+            else
+            {
+                totalSold += tx.Amount;
+                txCount += 1;
+            }
+        }
 
-        // Total charged = total vendido (cargos) para mantener consistencia
         var totalCharged = totalSold;
 
         _logger.LogDebug("[reports.summary] from={From} to={To} txCount={TxCount} totalSold={TotalSold} totalTips={TotalTips} totalDonations={TotalDonations} totalCharged={TotalCharged}",
@@ -92,15 +133,24 @@ public sealed class ReportService : IReportService
 
     public async Task<Report2SummaryResult> GetReports2SummaryAsync(CashlessContext db, int tenantId, DateTimeOffset fromDt, DateTimeOffset toDt)
     {
-        var from = fromDt.UtcDateTime;
-        var to = toDt.UtcDateTime;
+        var from = fromDt.DateTime;
+        var to = toDt.DateTime;
 
-        var chargesQ = db.Transactions
-            .Where(x => x.TenantId == tenantId && x.Type == TransactionType.Charge && x.CreatedAt >= from && x.CreatedAt < to);
+        var chargesQ = TxForTenant(db, tenantId)
+            .Where(x => x.Type == TransactionType.Charge && x.CreatedAt >= from && x.CreatedAt < to);
 
-        var totalVendido = ToDecimal(await chargesQ.SumAsync(x => (double?)x.Amount));
-        var txCount = await chargesQ.CountAsync();
-        var userCount = await db.Users.Where(u => u.TenantId == tenantId).CountAsync();
+        var rows = await chargesQ.Select(x => new { x.Amount, x.Note }).ToListAsync();
+        int txCount = 0;
+        decimal totalVendido = 0m;
+        foreach (var tx in rows)
+        {
+            var kind = GetKind(tx.Note);
+            if (kind == "TIP" || kind == "DONATION") continue;
+            totalVendido += tx.Amount;
+            txCount += 1;
+        }
+
+        var userCount = await UsersForTenant(db, tenantId).CountAsync();
 
         // OJO: propina/donación hoy NO se guardan en DB (tu /charge no las maneja),
         // así que por ahora regresan 0 hasta que implementemos ChargeRequestV2 y persistencia.
@@ -124,24 +174,41 @@ public sealed class ReportService : IReportService
 
     public async Task<List<SalesByAreaRow>> GetSalesByAreaAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to)
     {
-        var fromUtc = from.UtcDateTime;
-        var toUtc = to.UtcDateTime;
-        var rows = await db.Transactions
-            .Where(t => t.TenantId == tenantId && t.Type == TransactionType.Charge && t.CreatedAt >= fromUtc && t.CreatedAt <= toUtc)
+        var fromUtc = from.DateTime;
+        var toUtc = to.DateTime;
+        var list = await TxForTenant(db, tenantId)
+            .Where(t => t.Type == TransactionType.Charge && t.CreatedAt >= fromUtc && t.CreatedAt < toUtc)
+            .Select(t => new { t.AreaId, t.Amount, t.Note })
+            .ToListAsync();
+
+        var rows = list
             .GroupBy(t => t.AreaId)
-            .Select(g => new
+            .Select(g =>
             {
-                areaId = g.Key,
-                txCount = g.Count(),
-                totalSold = g.Sum(x => (double?)x.Amount) ?? 0d,
-                totalTips = g.Sum(x => (double?)x.TipAmount) ?? 0d
+                int txCount = 0;
+                decimal totalSold = 0m;
+                decimal totalTips = 0m;
+                foreach (var t in g)
+                {
+                    var kind = GetKind(t.Note);
+                    if (kind == "TIP") totalTips += t.Amount;
+                    else if (kind == "DONATION") { }
+                    else { totalSold += t.Amount; txCount += 1; }
+                }
+                return new
+                {
+                    areaId = g.Key,
+                    txCount,
+                    totalSold = (double)totalSold,
+                    totalTips = (double)totalTips
+                };
             })
             .OrderByDescending(x => x.totalSold)
-            .ToListAsync();
+            .ToList();
 
         var areaIds = rows.Where(r => r.areaId.HasValue).Select(r => r.areaId!.Value).ToList();
         var areaNames = await db.Areas
-            .Where(a => a.TenantId == tenantId && areaIds.Contains(a.Id))
+            .Where(a => (a.TenantId == tenantId || a.TenantId == 0) && areaIds.Contains(a.Id))
             .ToDictionaryAsync(a => a.Id, a => a.Name);
 
         var result = rows
@@ -163,30 +230,47 @@ public sealed class ReportService : IReportService
 
     public async Task<List<ReportsByOperatorRow>> GetReportsByOperatorAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to, int? areaId)
     {
-        var fromUtc = from.UtcDateTime;
-        var toUtc = to.UtcDateTime;
+        var fromUtc = from.DateTime;
+        var toUtc = to.DateTime;
 
-        var q = db.Transactions
-            .Where(t => t.TenantId == tenantId && t.Type == TransactionType.Charge && t.CreatedAt >= fromUtc && t.CreatedAt <= toUtc);
+        var q = TxForTenant(db, tenantId)
+            .Where(t => t.Type == TransactionType.Charge && t.CreatedAt >= fromUtc && t.CreatedAt < toUtc);
 
         if (areaId.HasValue)
             q = q.Where(t => t.AreaId == areaId.Value);
 
-        var rows = await q
+        var list = await q
+            .Select(t => new { t.OperatorId, t.Amount, t.Note })
+            .ToListAsync();
+
+        var rows = list
             .GroupBy(t => t.OperatorId)
-            .Select(g => new
+            .Select(g =>
             {
-                operatorId = g.Key,
-                txCount = g.Count(),
-                totalSold = g.Sum(x => (double?)x.Amount) ?? 0d,
-                totalTips = g.Sum(x => (double?)x.TipAmount) ?? 0d
+                int txCount = 0;
+                decimal totalSold = 0m;
+                decimal totalTips = 0m;
+                foreach (var t in g)
+                {
+                    var kind = GetKind(t.Note);
+                    if (kind == "TIP") totalTips += t.Amount;
+                    else if (kind == "DONATION") { }
+                    else { totalSold += t.Amount; txCount += 1; }
+                }
+                return new
+                {
+                    operatorId = g.Key,
+                    txCount,
+                    totalSold = (double)totalSold,
+                    totalTips = (double)totalTips
+                };
             })
             .OrderByDescending(x => x.totalSold)
-            .ToListAsync();
+            .ToList();
 
         var opIds = rows.Where(r => r.operatorId.HasValue).Select(r => r.operatorId!.Value).ToList();
         var opNames = await db.Operators
-            .Where(o => o.TenantId == tenantId && opIds.Contains(o.Id))
+            .Where(o => (o.TenantId == tenantId || o.TenantId == 0) && opIds.Contains(o.Id))
             .ToDictionaryAsync(o => o.Id, o => o.Name);
 
         return rows
@@ -202,11 +286,11 @@ public sealed class ReportService : IReportService
 
     public async Task<List<ReportsRecentRow>> GetReportsRecentAsync(CashlessContext db, int tenantId, DateTimeOffset from, DateTimeOffset to, int? areaId, int take)
     {
-        var fromUtc = from.UtcDateTime;
-        var toUtc = to.UtcDateTime;
+        var fromUtc = from.DateTime;
+        var toUtc = to.DateTime;
 
-        var q = db.Transactions
-            .Where(t => t.TenantId == tenantId && t.Type == TransactionType.Charge && t.CreatedAt >= fromUtc && t.CreatedAt <= toUtc);
+        var q = TxForTenant(db, tenantId)
+            .Where(t => t.Type == TransactionType.Charge && t.CreatedAt >= fromUtc && t.CreatedAt < toUtc);
 
         if (areaId.HasValue)
             q = q.Where(t => t.AreaId == areaId.Value);
@@ -228,12 +312,12 @@ public sealed class ReportService : IReportService
 
         var areaIds = list.Where(r => r.AreaId.HasValue).Select(r => r.AreaId!.Value).ToList();
         var areaNames = await db.Areas
-            .Where(a => a.TenantId == tenantId && areaIds.Contains(a.Id))
+            .Where(a => (a.TenantId == tenantId || a.TenantId == 0) && areaIds.Contains(a.Id))
             .ToDictionaryAsync(a => a.Id, a => a.Name);
 
         var opIds = list.Where(r => r.OperatorId.HasValue).Select(r => r.OperatorId!.Value).ToList();
         var opNames = await db.Operators
-            .Where(o => o.TenantId == tenantId && opIds.Contains(o.Id))
+            .Where(o => (o.TenantId == tenantId || o.TenantId == 0) && opIds.Contains(o.Id))
             .ToDictionaryAsync(o => o.Id, o => o.Name);
 
         return list.Select(r => new ReportsRecentRow(

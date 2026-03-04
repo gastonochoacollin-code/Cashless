@@ -20,6 +20,9 @@ function loadTerminalId(){
   return "BARRA-01";
 }
 
+function getTerminalId(){
+  return (state && state.terminalId ? state.terminalId : (loadTerminalId() || "BARRA-01")).trim();
+}
 function setTerminalId(newId){
   const clean = (newId || "").trim() || "BARRA-01";
   sessionStorage.setItem(TERMINAL_KEY, clean);
@@ -264,7 +267,7 @@ function setCardInfo({ statusText = "-", holder = "-", before = null, after = nu
   const afterEl = $("cardBalanceAfter");
   if(statusEl) statusEl.textContent = statusText || "-";
   if(holderEl) holderEl.textContent = holder || "-";
-  if(beforeEl) beforeEl.textContent = (before === null || before === undefined) ? "$0.00" : money(before);
+  if(beforeEl) beforeEl.textContent = (before === null || before === undefined) ? "-" : money(before);
   if(afterEl) afterEl.textContent = (after === null || after === undefined) ? "-" : money(after);
 }
 
@@ -385,7 +388,7 @@ async function useLastUid(){
   try{
     const tid = state.terminalId || getTerminalId();
     const uid = await apiGetLastUid(tid);
-    $("uidInput").value = uid || "";
+    $("uidInput").value = normalizeUid(uid || "");
     await lookupAndRenderCard(uid);
   }catch(e){
     setPayMsg("No se pudo obtener ultimo UID.", "err");
@@ -393,7 +396,7 @@ async function useLastUid(){
 }
 
 async function pay(){
-  const uid = String($("uidInput").value || "").trim();
+  const uid = normalizeUid(String($("uidInput").value || "").trim());
   if(!uid) return setPayMsg("UID requerido.", "err");
   if(state.beforeBalance === null){
     setPayMsg("Tarjeta no asignada o sin saldo disponible.", "err");
@@ -423,13 +426,38 @@ async function pay(){
     items
   };
 
+  const terminalId = getTerminalId();
+  const chargePath = `/api/charge-v2?terminalId=${encodeURIComponent(terminalId)}`;
+  const chargeUrl = `${API_BASE}${chargePath}`;
+  const beforeBalanceSnapshot = state.beforeBalance;
+
   setPayMsg("Procesando cobro...", "");
 
-  const res = await apiFetch("/api/charge-v2", {
+  const reqHdr = apiHeaders();
+  console.log("POS_CHARGE_REQUEST", {
+    url: chargeUrl,
+    hasTenant: !!reqHdr["X-Tenant-Id"],
+    hasFestival: !!reqHdr["X-Festival-Id"],
+    hasAuth: !!reqHdr["Authorization"],
+    hasOpToken: !!reqHdr["X-Operator-Token"],
+    terminalId,
+    uidShort: uidShort(uid),
+    areaId: payload.areaId,
+    operatorId: payload.operatorId,
+    itemsCount: payload.items.length,
+    total: totals.total,
+    payload
+  });
+
+  const res = await apiFetch(chargePath, {
     method:"POST",
     body: JSON.stringify(payload)
   });
-  const data = await res.json().catch(()=>null);
+  const rawText = await res.text().catch(() => "");
+  let data = null;
+  if(rawText){
+    try{ data = JSON.parse(rawText); }catch{ data = null; }
+  }
 
   if(res.status === 401){
     clearSession();
@@ -438,21 +466,30 @@ async function pay(){
   }
 
   if(res.status !== 200){
-    const msg = await readErrorMessage(res);
-    setPayMsg(`ERROR ${res.status}: ${msg}`, "err");
+    const msg = (data && (data.message || data.error)) || rawText || res.statusText || "Bad Request";
+    console.error("POS_CHARGE_ERROR", {
+      url: chargeUrl,
+      status: res.status,
+      terminalId,
+      uidShort: uidShort(uid),
+      payload,
+      response: data || rawText || null
+    });
+    setPayMsg(`ERROR ${res.status}: ${msg} (URL: ${chargeUrl})`, "err");
     return;
   }
 
   const hdr = apiHeaders();
   console.log("POS_CHARGE", {
-    url: `${API_BASE}/api/charge-v2`,
+    url: chargeUrl,
     hasTenant: !!hdr["X-Tenant-Id"],
     hasFestival: !!hdr["X-Festival-Id"],
     hasAuth: !!hdr["Authorization"],
     hasOpToken: !!hdr["X-Operator-Token"],
-    terminalId: getTerminalId(),
+    terminalId,
     uidShort: uidShort(uid),
-    total: totals.total
+    total: totals.total,
+    response: data
   });
 
   const afterFromResponse = Number(data?.newBalance ?? data?.afterBalance ?? data?.balanceAfter);
@@ -461,7 +498,7 @@ async function pay(){
     setCardInfo({
       statusText: "Cobro realizado",
       holder: $("cardHolderName")?.textContent || "-",
-      before: state.beforeBalance,
+      before: beforeBalanceSnapshot,
       after: state.afterBalance
     });
   }else{
@@ -470,17 +507,19 @@ async function pay(){
     setCardInfo({
       statusText: "Cobro realizado",
       holder: $("cardHolderName")?.textContent || "-",
-      before: state.beforeBalance,
+      before: beforeBalanceSnapshot,
       after: state.afterBalance
     });
   }
 
   setPayMsg("Cobro exitoso.", "ok");
+  if(typeof syncInventoryFromSale === "function"){
+    syncInventoryFromSale(payload.areaId, payload.items);
+  }
   state.cart.clear();
   renderCart();
   $("uidInput").value = "";
 }
-
 function clearAll(){
   state.cart.clear();
   renderCart();
@@ -564,4 +603,3 @@ init().catch(e=>{
   console.error("pos init error:", e);
   setPayMsg("Error inicializando POS.", "err");
 });
-

@@ -2,6 +2,7 @@
 (() => {
   const el = (id) => document.getElementById(id);
   const FILTER_KEY = "cashless.reports.filters";
+  requireUiPermission("reports_view");
 
   const money = (n) => Number(n || 0).toLocaleString("es-MX", { style:"currency", currency:"MXN" });
   const intFmt = (n) => Number(n || 0).toLocaleString("es-MX");

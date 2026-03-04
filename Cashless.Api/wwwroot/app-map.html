@@ -29,18 +29,17 @@
     <div id="appMenu" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px"></div>
     <div class="card">
       <h1>Mapa de la Aplicacion</h1>
-      <div class="muted">Inventario funcional para UX sin romper flujos de venta/recarga/asignacion.</div>
-      <div class="muted" style="margin-top:6px">Ultima actualizacion: 2026-02-23 12:10</div>
+      <div class="muted">Mapa funcional actualizado con dashboards por rol, permisos UI, inventarios en backend real y nuevas pantallas operativas.</div>
+      <div class="muted" style="margin-top:6px">Ultima actualizacion: 2026-03-03</div>
     </div>
 
     <div class="card">
       <h2>Actualizaciones recientes</h2>
-      <div class="muted">Dashboard principal con botones por rol (POS, Caja/Cortes, Reportes).</div>
-      <div class="muted">Caja/Cortes consolidado en <code>/dashboard-caja/</code> y <code>/dashboard-caja/reportes.html</code>.</div>
-      <div class="muted">Reportes activos: <code>/reports-summary.html</code>, <code>/reports-cashier.html</code>, <code>/reports-products.html</code>, <code>/reports-recharges.html</code>.</div>
-      <div class="muted">Compatibilidad activa entre rutas legacy y rutas <code>/api/*</code> en asignacion/reasignacion de tarjetas.</div>
+      <div class="muted">Dashboard principal y panel operativo por rol con accesos dinamicos.</div>
+      <div class="muted">Caja/Cortes consolidado en <code>/dashboard-caja/</code> y <code>/dashboard-caja/reportes.html</code>; dashboard de caja sin NFC.</div>
+      <div class="muted">Nuevas pantallas: <code>/registro-usuarios.html</code>, <code>/transferencias-saldo.html</code>, <code>/lista-precios.html</code>, <code>/reportes-barra.html</code>, <code>/inventarios.html</code>, <code>/inventarios-reportes.html</code>, <code>/asignacion-roles.html</code>.</div>
+      <div class="muted">Inventario en backend enlazado a ventas reales, entradas a almacen y transferencias por barra.</div>
       <div class="muted">Lectores y pantallas NFC usan <code>terminalId</code> para aislar UIDs por PC (querystring o header <code>X-Terminal-Id</code>; fallback <code>DEFAULT</code>).</div>
-      <div class="muted">Limpieza: se eliminaron archivos legacy de caja (<code>cashier-*.html/js</code>) y temporales.</div>
     </div>
 
     <div class="card">
@@ -54,22 +53,25 @@
           <tr><td><code>/index.html</code></td><td>Entrada</td><td>Todos</td><td>Entrada web / redireccion principal.</td></tr>
           <tr><td><code>/dashboard.html</code></td><td>Dashboard</td><td>Admin/Jefaturas</td><td>Accesos rapidos por rol.</td></tr>
           <tr><td><code>/pos.html</code></td><td>Ventas</td><td>Vendedor/Barra</td><td>Cobros por productos, lectura UID, cobro <code>/api/charge-v2</code>.</td></tr>
-          <tr><td><code>/recargas.html</code></td><td>Recargas</td><td>Cajero</td><td>Topups con UID y <code>/api/topup</code>.</td></tr>
-          <tr><td><code>/usuarios.html</code></td><td>Clientes</td><td>Admin</td><td>Asignar/Reasignar tarjeta, lookup UID.</td></tr>
+          <tr><td><code>/recargas.html</code></td><td>Recargas</td><td>Cajero/Admin</td><td>Topups con UID, forma de pago y flujo <code>/api/topups</code> con fallback.</td></tr>
+          <tr><td><code>/registro-usuarios.html</code></td><td>Clientes</td><td>Cajero/JefeOperativo/Admin</td><td>Alta de usuarios finales, asignacion y reasignacion de tarjeta.</td></tr>
+          <tr><td><code>/transferencias-saldo.html</code></td><td>Clientes</td><td>Cajero/JefeOperativo/Admin</td><td>Transferencia de saldo entre usuarios finales del mismo tenant.</td></tr>
           <tr><td><code>/operators.html</code></td><td>Operadores</td><td>Admin</td><td>Gestion de operadores y roles.</td></tr>
           <tr><td><code>/barras.html</code></td><td>Areas/Barra</td><td>Admin/Jefaturas</td><td>Catalogo de barras/areas.</td></tr>
           <tr><td><code>/menus.html</code></td><td>Productos</td><td>Admin/Jefaturas</td><td>Catalogo de productos por area.</td></tr>
+          <tr><td><code>/ops.html</code></td><td>Operativo</td><td>Jefaturas</td><td>Panel operativo con accesos a POS, menus, reportes de barra, inventarios y lista de precios.</td></tr>
+          <tr><td><code>/lista-precios.html</code></td><td>Consulta</td><td>Todos</td><td>Tabla informativa de productos, precio base y barras activas.</td></tr>
+          <tr><td><code>/reportes-barra.html</code></td><td>Reportes</td><td>JefeDeBarra/JefeDeStand/Admin</td><td>Ventas de barra, recientes, turnos de barra e impresion PDF.</td></tr>
+          <tr><td><code>/inventarios.html</code></td><td>Inventarios</td><td>Jefaturas de barra/Admin</td><td>Existencias dinamicas por ventas, entradas a almacen y transferencias.</td></tr>
+          <tr><td><code>/inventarios-reportes.html</code></td><td>Inventarios</td><td>Jefaturas de barra/Admin</td><td>Reporte imprimible de movimientos y snapshot actual.</td></tr>
           <tr><td><code>/festivales.html</code></td><td>Festivales</td><td>Admin</td><td>Alta y configuracion de festivales.</td></tr>
           <tr><td><code>/permisos.html</code></td><td>Permisos</td><td>Admin</td><td>Matriz de permisos por rol.</td></tr>
+          <tr><td><code>/asignacion-roles.html</code></td><td>Permisos</td><td>SuperAdmin</td><td>Asignacion de rol a colaboradores.</td></tr>
           <tr><td><code>/ventas.html</code></td><td>Auditoria</td><td>Admin</td><td>Ventas filtradas (areas, operador, festival).</td></tr>
           <tr><td><code>/reports.html</code></td><td>Reportes</td><td>Admin/Jefaturas</td><td>Hub de reportes y filtros globales.</td></tr>
-          <tr><td><code>/reports-summary.html</code></td><td>Reportes</td><td>Admin/Jefaturas</td><td>Resumen de ventas/recargas por area.</td></tr>
-          <tr><td><code>/reports-cashier.html</code></td><td>Reportes</td><td>Admin/Jefaturas</td><td>Totales por cajero/operador.</td></tr>
-          <tr><td><code>/reports-products.html</code></td><td>Reportes</td><td>Admin/Jefaturas</td><td>Ventas agrupadas por producto.</td></tr>
           <tr><td><code>/reports-recharges.html</code></td><td>Reportes</td><td>Admin/SuperAdmin</td><td>Totales y detalle de recargas por periodo.</td></tr>
-          <tr><td><code>/dashboard-caja/index.html</code></td><td>Caja</td><td>Cajero</td><td>Operacion de caja y turnos.</td></tr>
+          <tr><td><code>/dashboard-caja/index.html</code></td><td>Caja</td><td>Cajero</td><td>Shell de caja sin botones inferiores; navegacion por menu superior.</td></tr>
           <tr><td><code>/dashboard-caja/reportes.html</code></td><td>Caja</td><td>Cajero/Jefaturas</td><td>Cortes por turno y PDF.</td></tr>
-          <tr><td><code>/print-report.html</code></td><td>Impresion</td><td>Interno</td><td>Plantilla de impresion de reportes.</td></tr>
           <tr><td><code>/app-map.html</code></td><td>Mapa</td><td>Admin</td><td>Inventario tecnico y flujos.</td></tr>
         </tbody>
       </table>
@@ -80,9 +82,10 @@
       <div class="muted"><b>Sesion y tenant:</b> <code>cashless.session</code> en <code>localStorage</code> define <code>operatorId</code>, <code>token</code>, <code>tenantId</code>. Headers base en <code>common.js</code>: <code>X-Operator-Id</code>, <code>X-Operator-Token</code>, <code>X-Tenant-Id</code>, <code>Authorization</code>.</div>
       <div class="muted"><b>Festival:</b> se guarda en <code>cashless.festivalId</code> y se envia como <code>X-Festival-Id</code> para clamp en reportes/ventas.</div>
       <div class="muted"><b>NFC / UID:</b> lector publica en <code>/api/uid</code> y lectura consume en <code>/api/last-uid</code> con <code>terminalId</code> (aislamiento por PC).</div>
-      <div class="muted"><b>Ventas:</b> POS usa areas/productos y cobra con <code>/api/charge-v2</code>; auditoria en <code>/ventas.html</code>.</div>
-      <div class="muted"><b>Recargas:</b> caja usa <code>/api/topup</code>; cortes y reportes en <code>/dashboard-caja/*</code> y <code>/reports-recharges.html</code>.</div>
-      <div class="muted"><b>Reportes:</b> <code>/reports.html</code> define filtros globales (rango/area/operador) y cada reporte consume su endpoint.</div>
+      <div class="muted"><b>Ventas:</b> POS usa areas/productos y cobra con <code>/api/charge-v2</code>; inventarios se cruzan contra ventas reales por <code>SaleItems</code>.</div>
+      <div class="muted"><b>Recargas:</b> caja usa <code>/api/topups</code> (o fallback legacy) con <code>paymentMethod</code>; cortes y reportes en <code>/dashboard-caja/*</code>.</div>
+      <div class="muted"><b>Inventarios:</b> ya existe backend dedicado con <code>/api/inventory/*</code>; el estado vive en base real por tenant y se mueve por entradas, transferencias y ventas.</div>
+      <div class="muted"><b>Reportes:</b> <code>/reports.html</code> define filtros globales y <code>/reportes-barra.html</code> cubre la vista operativa de barra.</div>
     </div>
 
     <div class="card">
@@ -91,29 +94,32 @@
         <div>
           <b>Admin / SuperAdmin</b>
           <div class="muted">
-            dashboard.html, usuarios.html, festivales.html, recargas.html, ventas.html,<br/>
-            reports.html, reports-summary.html, reports-cashier.html, reports-products.html, reports-recharges.html,<br/>
-            pos.html, barras.html, menus.html, operators.html, permisos.html, app-map.html,<br/>
+            dashboard.html, registro-usuarios.html, transferencias-saldo.html, festivales.html, recargas.html, ventas.html,<br/>
+            reports.html, reports-products.html, reports-recharges.html, reportes-barra.html,<br/>
+            pos.html, barras.html, menus.html, inventarios.html, inventarios-reportes.html,<br/>
+            operators.html, permisos.html, asignacion-roles.html, lista-precios.html, app-map.html,<br/>
             dashboard-caja/index.html, dashboard-caja/reportes.html
           </div>
         </div>
         <div>
-          <b>Jefaturas (JefeOperativo, JefeDeBarra, JefeDeCaja)</b>
+          <b>Jefaturas (JefeOperativo, JefeDeBarra, JefeDeStand)</b>
           <div class="muted">
-            dashboard.html, ops.html, pos.html, barras.html, menus.html, recargas.html,<br/>
-            dashboard-caja/index.html, dashboard-caja/reportes.html, reports.html (segun permisos)
+            dashboard.html, ops.html, pos.html, barras.html, menus.html, recargas.html, transferencias-saldo.html,<br/>
+            reportes-barra.html, inventarios.html, inventarios-reportes.html, lista-precios.html,<br/>
+            dashboard-caja/reportes.html, reports.html (segun permisos)
           </div>
         </div>
         <div>
           <b>Cajero</b>
           <div class="muted">
-            dashboard-caja/index.html, dashboard-caja/reportes.html, recargas.html
+            dashboard-caja/index.html, dashboard-caja/reportes.html, recargas.html, transferencias-saldo.html,<br/>
+            registro-usuarios.html, lista-precios.html
           </div>
         </div>
         <div>
-          <b>Vendedor</b>
+          <b>Vendedor / CajeroDeBarra</b>
           <div class="muted">
-            pos.html, dashboard.html (solo acciones permitidas por rol)
+            pos.html, lista-precios.html
           </div>
         </div>
       </div>
@@ -126,12 +132,16 @@
           <tr><th>Pagina</th><th>Endpoints</th><th>Headers requeridos</th></tr>
         </thead>
         <tbody>
-          <tr><td>usuarios.html</td><td><code>/api/last-uid</code>, <code>/api/users</code>, <code>/api/users/{id}/contact</code>, <code>/api/assign-card</code>, <code>/api/reassign-card</code>, <code>/api/cards/{uid}</code></td><td><code>X-Tenant-Id</code>, <code>Authorization</code>/<code>X-Operator-Token</code>; <code>X-Festival-Id</code> opcional (sin clamp en users)</td></tr>
-          <tr><td>recargas.html</td><td><code>/api/last-uid</code>, <code>/api/cards/{uid}</code>, <code>/api/topup</code></td><td><code>X-Tenant-Id</code>, <code>Authorization</code>/<code>X-Operator-Token</code></td></tr>
+          <tr><td>registro-usuarios.html</td><td><code>/api/clients</code>, <code>/api/last-uid</code>, <code>/api/assign-card</code>, <code>/api/reassign-card</code></td><td><code>X-Tenant-Id</code>, <code>Authorization</code>/<code>X-Operator-Token</code></td></tr>
+          <tr><td>transferencias-saldo.html</td><td><code>/api/clients</code>, <code>/api/clients/transfers</code>, <code>/api/clients/transfer-balance</code></td><td><code>X-Tenant-Id</code>, <code>Authorization</code>/<code>X-Operator-Token</code></td></tr>
+          <tr><td>recargas.html</td><td><code>/api/last-uid</code>, <code>/api/cards/{uid}</code>, <code>/api/topups</code>, fallback <code>/api/topup</code></td><td><code>X-Tenant-Id</code>, <code>Authorization</code>/<code>X-Operator-Token</code></td></tr>
           <tr><td>pos.html (POS)</td><td><code>/api/areas</code>, <code>/api/areas/{id}/products</code>, <code>/api/last-uid</code>, <code>/api/charge-v2</code></td><td><code>X-Tenant-Id</code>, <code>Authorization</code>/<code>X-Operator-Token</code>, <code>X-Festival-Id</code> opcional</td></tr>
           <tr><td>reports*.html</td><td><code>/api/reports/summary</code>, <code>/api/reports/by-cashier</code>, <code>/api/reports/by-product</code>, <code>/api/reports/recent</code>, <code>/api/reports/cashier/summary</code>, <code>/api/reports/recharges-rows</code>, <code>/api/festivals</code></td><td><code>X-Tenant-Id</code>, <code>Authorization</code>/<code>X-Operator-Token</code>, <code>X-Festival-Id</code> para clamp de reportes</td></tr>
           <tr><td>ventas.html</td><td><code>/api/sales</code>, <code>/api/areas</code>, <code>/api/operators</code>, <code>/api/festivals</code></td><td><code>X-Tenant-Id</code>, <code>Authorization</code>/<code>X-Operator-Token</code>, <code>X-Festival-Id</code> para clamp</td></tr>
-          <tr><td>dashboard-caja/index.html</td><td><code>/api/topups</code>, <code>/api/shifts/open</code>, <code>/api/shifts/close</code>, <code>/api/shifts/current</code>, <code>/api/last-uid</code>, <code>/api/cards/{uid}</code></td><td><code>X-Tenant-Id</code>, <code>Authorization</code>/<code>X-Operator-Token</code></td></tr>
+          <tr><td>lista-precios.html</td><td><code>/api/products</code>, <code>/api/areas</code>, <code>/api/areas/{id}/products</code></td><td><code>X-Tenant-Id</code>, <code>Authorization</code>/<code>X-Operator-Token</code></td></tr>
+          <tr><td>reportes-barra.html</td><td><code>/api/reports/summary</code>, <code>/api/reports/sales-by-area</code>, <code>/api/sales</code>, <code>/api/cashier/shifts</code>, <code>/api/shifts/current</code></td><td><code>X-Tenant-Id</code>, <code>Authorization</code>/<code>X-Operator-Token</code>, <code>X-Festival-Id</code> opcional</td></tr>
+          <tr><td>inventarios*.html</td><td><code>/api/inventory/summary</code>, <code>/api/inventory/movements</code>, <code>/api/inventory/warehouse-in</code>, <code>/api/inventory/transfer</code>, <code>/api/products</code>, <code>/api/areas</code>, <code>/api/areas/{id}/products</code></td><td><code>X-Tenant-Id</code>, <code>Authorization</code>/<code>X-Operator-Token</code></td></tr>
+          <tr><td>dashboard-caja/index.html</td><td>Sin llamadas criticas; solo menu de navegacion</td><td><code>X-Tenant-Id</code>, <code>Authorization</code>/<code>X-Operator-Token</code> en vistas hijas</td></tr>
           <tr><td>dashboard-caja/reportes.html</td><td><code>/api/cashier/shifts</code>, <code>/api/reports/cashier/summary</code>, <code>/api/recharges/reports/shift/{shiftId}</code>, <code>/api/recharges/reports/shift/{shiftId}/pdf-model</code></td><td><code>X-Tenant-Id</code>, <code>Authorization</code>/<code>X-Operator-Token</code></td></tr>
         </tbody>
       </table>
@@ -142,25 +152,16 @@
 
     <div class="card">
       <h2>E) Duplicados / Legacy</h2>
-      <table>
-        <thead><tr><th>Legacy</th><th>Ruta oficial</th><th>Estado</th></tr></thead>
-        <tbody>
-          <tr><td><code>/users</code>, <code>/users/count</code>, <code>/users/summary</code></td><td><code>/api/users*</code></td><td>DEPRECATED</td></tr>
-          <tr><td><code>/uid</code>, <code>/last-uid</code></td><td><code>/api/uid</code>, <code>/api/last-uid</code></td><td>DEPRECATED</td></tr>
-          <tr><td><code>/cards/{uid}</code></td><td><code>/api/cards/{uid}</code></td><td>DEPRECATED</td></tr>
-          <tr><td><code>/assign-card</code>, <code>/reassign-card</code></td><td><code>/api/assign-card</code>, <code>/api/reassign-card</code></td><td>DEPRECATED (alias activo)</td></tr>
-          <tr><td><code>/charge-v2</code>, <code>/topup</code></td><td><code>/api/charge-v2</code>, <code>/api/topup</code></td><td>DEPRECATED</td></tr>
-        </tbody>
-      </table>
+      <div class="muted">Se mantienen alias legacy (incluye <code>/uid</code>, <code>/last-uid</code>, <code>/topup</code>, <code>/charge*</code>, <code>/users*</code>, <code>/assign-card</code>, <code>/reassign-card</code>, <code>/cards/{uid}</code>) para compatibilidad temporal. Oficial: <code>/api/*</code>.</div>
     </div>
 
     <div class="card">
       <h2>F) Pendientes</h2>
+      <div><span class="p0"><b>P0</b></span> Implementar ticket automatico post-cobro en <code>pos.html</code> con saldo antes/despues, compra desglosada, usuario, hora, barra y operador; opcion recomendada: vista de ticket separada + <code>window.print()</code> tras cobro exitoso.</div>
       <div><span class="p0"><b>P0</b></span> Consolidar permisos backend de reportes para jefaturas sin exponer ventas globales a roles operativos.</div>
-      <div><span class="p0"><b>P0</b></span> Unificar endpoints de reportes de recargas (<code>/api/reports/recharges-rows</code> vs <code>/api/recharges/reports/shift/*</code>) y documentar uno oficial.</div>
-      <div><span class="p1"><b>P1</b></span> Normalizar campos de nombre de cajero/terminal en reportes (evitar fallback por formato de PDF model).</div>
+      <div><span class="p1"><b>P1</b></span> Unificar endpoint oficial de recargas y retirar fallback legacy cuando ya no haya clientes viejos.</div>
       <div><span class="p1"><b>P1</b></span> Unificar encoding de textos JS/HTML para eliminar mojibake.</div>
-      <div><span class="p2"><b>P2</b></span> Retirar aliases legacy y dejar solo <code>/api/*</code> tras ventana de deprecacion.</div>
+      <div><span class="p2"><b>P2</b></span> Agregar reportes de inventario con CSV y cierre por periodo sobre <code>/api/inventory/*</code>.</div>
     </div>
   </div>
   <script>
@@ -168,5 +169,3 @@
   </script>
 </body>
 </html>
-
-

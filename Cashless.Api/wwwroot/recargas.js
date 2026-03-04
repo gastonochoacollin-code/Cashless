@@ -3,6 +3,7 @@
   const el = (id) => document.getElementById(id);
 
   const session = requireSession();
+  requireUiPermission("topup", "/dashboard.html");
   if (typeof renderAppMenu === "function") {
     renderAppMenu("appMenu", "/recargas.html");
   }
@@ -137,15 +138,24 @@
     if(!uid) return setStatus("UID requerido", false);
 
     const amount = Number(el("amountInput").value);
+    const paymentMethod = String(el("paymentMethod")?.value || "efectivo").trim().toLowerCase();
     if(!Number.isFinite(amount) || amount <= 0){
       return setStatus("Monto invalido", false);
     }
 
     try{
-      const res = await apiFetch("/api/topup", {
+      const tid = loadTerminalId();
+      const payload = { uid, amount, paymentMethod };
+      let res = await apiFetch(`/api/topups?terminalId=${encodeURIComponent(tid)}`, {
         method:"POST",
-        body: JSON.stringify({ uid, amount })
+        body: JSON.stringify(payload)
       });
+      if(res.status === 403 || res.status === 404){
+        res = await apiFetch(`/api/topup?terminalId=${encodeURIComponent(tid)}`, {
+          method:"POST",
+          body: JSON.stringify(payload)
+        });
+      }
       if(res.status === 401){
         clearSession();
         location.href = "/login.html";
@@ -162,7 +172,7 @@
       if(balance !== null){
         setUserInfo(el("userName").textContent, balance);
       }
-      setStatus(data?.message || "Recarga OK", true);
+      setStatus(data?.message || `Recarga OK (${paymentMethod})`, true);
     }catch(e){
       setStatus(`ERROR: ${String(e?.message || "Error al recargar")}`, false);
     }
@@ -170,6 +180,20 @@
 
   function init(){
     el("sessionInfo").textContent = `${session.name || "Sesion"} - ${session.role || ""}`.trim();
+    const roleName = normalizeRoleName(session.role || session.Role);
+    const dashboardHref = roleName === "Cajero" ? "/dashboard-caja/" : "/dashboard.html";
+    if(roleName === "Cajero"){
+      const appMenu = el("appMenu");
+      if(appMenu){
+        appMenu.innerHTML = `
+          <a class="btn alt" href="/dashboard-caja/">Dashboard Caja</a>
+          <a class="btn alt" href="/registro-usuarios.html">Usuarios</a>
+          <a class="btn alt" href="/lista-precios.html">Lista de precios</a>
+        `;
+      }
+      if(el("btnDashboard")) el("btnDashboard").style.display = "none";
+    }
+    if(el("btnDashboard")) el("btnDashboard").href = dashboardHref;
     initTerminalSelect();
     el("terminalSave").addEventListener("click", () => {
       setTerminalId(el("terminalSelect").value);

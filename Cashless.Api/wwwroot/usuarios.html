@@ -161,9 +161,18 @@
           <button id="btnCloseUserModal" class="alt btnSmall" type="button">Cerrar</button>
         </div>
       </div>
-      <div class="muted" style="margin-bottom:10px">
+      <div id="userModalHelp" class="muted" style="margin-bottom:10px">
         Solo Admin/SuperAdmin pueden crear usuarios de sistema. El PIN se guarda hasheado.
       </div>
+      <div class="form-row" style="margin-bottom:10px">
+        <input id="newName" class="field" placeholder="Nombre del usuario" />
+        <input id="newEmail" class="field" placeholder="Email (opcional)" />
+        <input id="newPhone" class="field" placeholder="Telefono (opcional)" />
+      </div>
+      <div id="systemUserFields">
+        <div class="muted" style="margin-bottom:10px">
+          Datos de acceso de sistema (solo Admin/SuperAdmin).
+        </div>
       <div class="form-row" style="margin-bottom:10px">
         <input id="newDisplayName" class="field" placeholder="Nombre (displayName)" />
         <input id="newUsername" class="field" placeholder="Usuario (username)" />
@@ -183,6 +192,7 @@
           <input type="checkbox" id="newIsActive" checked />
           Activo
         </label>
+      </div>
       </div>
       <div class="actions">
         <button id="btnCreateUser" class="green" type="button">Crear</button>

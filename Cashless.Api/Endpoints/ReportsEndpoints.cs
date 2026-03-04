@@ -28,7 +28,18 @@ public static class ReportsEndpoints
             => IsAdmin(op) || IsBoss(op);
 
         static int? ResolveAreaFilter(Cashless.Api.Models.Operator op, int? requestedAreaId)
-            => (IsAdmin(op) || IsBoss(op)) ? requestedAreaId : (op.AreaId > 0 ? op.AreaId : requestedAreaId);
+            => (IsAdmin(op) || IsBoss(op))
+                ? requestedAreaId
+                : (op.AreaId > 0 ? op.AreaId : requestedAreaId);
+
+        static IQueryable<Cashless.Api.Models.Transaction> TxForTenant(CashlessContext db, int tenantId)
+            => db.Transactions.Where(t => t.TenantId == tenantId || t.TenantId == 0);
+
+        static IQueryable<Cashless.Api.Models.Area> AreasForTenant(CashlessContext db, int tenantId)
+            => db.Areas.Where(a => a.TenantId == tenantId || a.TenantId == 0);
+
+        static IQueryable<Cashless.Api.Models.Operator> OperatorsForTenant(CashlessContext db, int tenantId)
+            => db.Operators.Where(o => o.TenantId == tenantId || o.TenantId == 0);
 
         static async Task<(Cashless.Api.Models.Operator? op, IResult? fail)> RequireReportsAccess(CashlessContext db, HttpContext http, IAuthService auth)
         {
@@ -58,7 +69,7 @@ public static class ReportsEndpoints
             var tenantId = op.TenantId;
             var canSeeAllAreas = IsAdmin(op) || IsBoss(op);
 
-            var q = db.Areas.Where(a => a.TenantId == tenantId);
+            var q = AreasForTenant(db, tenantId);
             if (!canSeeAllAreas)
             {
                 if (op.AreaId > 0) q = q.Where(a => a.Id == op.AreaId);
@@ -83,12 +94,10 @@ public static class ReportsEndpoints
             var (op, fail) = await RequireReportsAccess(db, http, auth);
             if (fail is not null) return fail;
             if (op is null) return Results.Unauthorized();
-            if (!IsAdmin(op))
-                return Results.Json(new { message = "Forbidden. Requiere rol Admin/SuperAdmin." }, statusCode: 403);
             var tenantId = op.TenantId;
             var effectiveAreaId = ResolveAreaFilter(op, areaId);
 
-            var range = GetMexicoRangeExclusive(from, to);
+            var range = GetMexicoRange(from, to);
             var fest = await TryGetFestivalRangeAsync(db, tenantId, http.Request);
             if (fest is not null) range = ClampRange(range, fest.Value);
             var result = await reports.GetReportsSummaryAsync(db, tenantId, range.From, range.To, effectiveAreaId);
@@ -146,92 +155,171 @@ public static class ReportsEndpoints
             return Results.Ok(rows);
         });
 
-        app.MapGet("/api/reports/by-product", async Task<IResult> (
+        
+
+                app.MapGet("/api/reports/by-product", async Task<IResult> (
             CashlessContext db,
             HttpContext http,
             IAuthService auth,
             string? from,
-            string? to,
-            int? areaId) =>
+            string? to) =>
         {
             var (op, fail) = await RequireReportsAccess(db, http, auth);
             if (fail is not null) return fail;
             if (op is null) return Results.Unauthorized();
             var tenantId = op.TenantId;
-            var effectiveAreaId = ResolveAreaFilter(op, areaId);
 
-            var range = GetMexicoRangeExclusive(from, to);
+            var range = GetMexicoRange(from, to);
             var fest = await TryGetFestivalRangeAsync(db, tenantId, http.Request);
             if (fest is not null) range = ClampRange(range, fest.Value);
 
-            var txRows = await db.Transactions
-                .Where(t => t.TenantId == tenantId
-                    && t.Type == Cashless.Api.Models.TransactionType.Charge
-                    && t.CreatedAt >= range.From
-                    && t.CreatedAt < range.To
-                    && t.Note != null)
-                .Select(t => new { t.Id, t.AreaId, t.Note })
-                .ToListAsync();
-
-            var acc = new Dictionary<string, (int? productId, string productName, int qty, decimal total, HashSet<int> txIds)>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var tx in txRows)
+            static int ReadInt(JsonElement el, params string[] names)
             {
-                if (string.IsNullOrWhiteSpace(tx.Note)) continue;
-                try
+                foreach (var n in names)
                 {
-                    using var doc = JsonDocument.Parse(tx.Note);
-                    if (!doc.RootElement.TryGetProperty("kind", out var kindEl)) continue;
-                    if (!string.Equals(kindEl.GetString(), "SALE_SUBTOTAL", StringComparison.OrdinalIgnoreCase)) continue;
-                    if (!doc.RootElement.TryGetProperty("items", out var itemsEl) || itemsEl.ValueKind != JsonValueKind.Array) continue;
-
-                    int? areaIdVal = tx.AreaId;
-                    if (doc.RootElement.TryGetProperty("areaId", out var areaEl) && areaEl.TryGetInt32(out var areaParsed)) areaIdVal = areaParsed;
-                    if (effectiveAreaId.HasValue && areaIdVal != effectiveAreaId.Value) continue;
-
-                    foreach (var it in itemsEl.EnumerateArray())
+                    if (el.TryGetProperty(n, out var v))
                     {
-                        var name = it.TryGetProperty("name", out var n) ? (n.GetString() ?? "").Trim() : "";
-                        if (string.IsNullOrWhiteSpace(name)) continue;
-                        var productIdVal = it.TryGetProperty("productId", out var p) && p.TryGetInt32(out var pid) ? pid : (int?)null;
-                        var qty = it.TryGetProperty("qty", out var q) && q.TryGetInt32(out var qv) ? qv : 0;
-                        if (qty <= 0) continue;
-                        var amount = it.TryGetProperty("lineTotal", out var a) && a.TryGetDecimal(out var av) ? av : 0m;
-
-                        var key = $"{productIdVal ?? 0}|{name}";
-                        if (acc.TryGetValue(key, out var cur))
-                        {
-                            cur.qty += qty;
-                            cur.total += amount;
-                            cur.txIds.Add(tx.Id);
-                            acc[key] = cur;
-                        }
-                        else
-                        {
-                            var set = new HashSet<int> { tx.Id };
-                            acc[key] = (productIdVal, name, qty, amount, set);
-                        }
+                        if (v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i)) return i;
+                        if (v.ValueKind == JsonValueKind.String && int.TryParse(v.GetString(), out var s)) return s;
                     }
                 }
-                catch
+                return 0;
+            }
+
+            static decimal ReadDecimal(JsonElement el, params string[] names)
+            {
+                foreach (var n in names)
                 {
-                    // ignorar notas malformadas
+                    if (el.TryGetProperty(n, out var v))
+                    {
+                        if (v.ValueKind == JsonValueKind.Number && v.TryGetDecimal(out var d)) return d;
+                        if (v.ValueKind == JsonValueKind.String && decimal.TryParse(v.GetString(), out var s)) return s;
+                    }
+                }
+                return 0m;
+            }
+
+            static string ReadName(JsonElement el, params string[] names)
+            {
+                foreach (var n in names)
+                {
+                    if (el.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.String)
+                    {
+                        var s = (v.GetString() ?? "").Trim();
+                        if (!string.IsNullOrWhiteSpace(s)) return s;
+                    }
+                }
+                return string.Empty;
+            }
+
+            var saleItemsRaw = await db.SaleItems
+                .Where(si => (si.TenantId == tenantId || si.TenantId == 0)
+                    && (si.Sale.TenantId == tenantId || si.Sale.TenantId == 0)
+                    && si.Sale.CreatedAt >= range.From
+                    && si.Sale.CreatedAt < range.To)
+                .Select(si => new
+                {
+                    si.ProductId,
+                    si.NameSnapshot,
+                    productName = si.Product != null ? si.Product.Name : null,
+                    si.Qty,
+                    si.LineTotal
+                })
+                .ToListAsync();
+
+            var acc = new Dictionary<string, (int productId, string productName, int qty, decimal total)>(StringComparer.OrdinalIgnoreCase);
+
+            void AddProductRow(int productIdVal, string name, int qty, decimal amount)
+            {
+                if (qty <= 0 || amount < 0m) return;
+                var cleanName = (name ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(cleanName))
+                    cleanName = productIdVal > 0 ? $"Producto {productIdVal}" : "Producto";
+
+                var key = $"{productIdVal}|{cleanName}";
+                if (acc.TryGetValue(key, out var cur))
+                {
+                    cur.qty += qty;
+                    cur.total += amount;
+                    acc[key] = cur;
+                }
+                else
+                {
+                    acc[key] = (productIdVal, cleanName, qty, amount);
+                }
+            }
+
+            if (saleItemsRaw.Count > 0)
+            {
+                foreach (var si in saleItemsRaw)
+                {
+                    var name = !string.IsNullOrWhiteSpace(si.NameSnapshot)
+                        ? si.NameSnapshot
+                        : (si.productName ?? string.Empty);
+                    AddProductRow(si.ProductId, name, si.Qty, si.LineTotal);
+                }
+            }
+            else
+            {
+                var txRows = await TxForTenant(db, tenantId)
+                    .Where(t => t.Type == Cashless.Api.Models.TransactionType.Charge
+                        && t.CreatedAt >= range.From
+                        && t.CreatedAt < range.To
+                        && t.Note != null)
+                    .Select(t => new { t.Id, t.Note })
+                    .ToListAsync();
+
+                foreach (var tx in txRows)
+                {
+                    if (string.IsNullOrWhiteSpace(tx.Note)) continue;
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(tx.Note);
+                        string kind = "";
+                        if (doc.RootElement.TryGetProperty("kind", out var kindEl))
+                            kind = (kindEl.GetString() ?? "").Trim();
+
+                        if (!kind.Equals("SALE_SUBTOTAL", StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        if (!doc.RootElement.TryGetProperty("items", out var itemsEl) || itemsEl.ValueKind != JsonValueKind.Array)
+                        {
+                            if (doc.RootElement.TryGetProperty("Items", out var itemsEl2) && itemsEl2.ValueKind == JsonValueKind.Array)
+                                itemsEl = itemsEl2;
+                            else
+                                continue;
+                        }
+
+                        foreach (var it in itemsEl.EnumerateArray())
+                        {
+                            var name = ReadName(it, "name", "productName", "producto", "nombre", "title", "label");
+                            if (string.IsNullOrWhiteSpace(name)) continue;
+                            var productIdVal = ReadInt(it, "productId", "id", "productID");
+                            var qty = ReadInt(it, "qty", "quantity", "cantidad", "units");
+                            if (qty <= 0) continue;
+                            var amount = ReadDecimal(it, "lineTotal", "total", "amount", "importe", "line_total");
+                            if (amount <= 0m)
+                            {
+                                var unit = ReadDecimal(it, "unitPrice", "price", "precio");
+                                if (unit > 0m) amount = unit * qty;
+                            }
+                            AddProductRow(productIdVal, name, qty, amount);
+                        }
+                    }
+                    catch
+                    {
+                    }
                 }
             }
 
             var rows = acc.Values
-                .Select(x =>
+                .Select(x => new
                 {
-                    var txCount = x.txIds.Count;
-                    var avgTicket = txCount > 0 ? (x.total / txCount) : 0m;
-                    return new
-                    {
-                        productId = x.productId,
-                        productName = x.productName,
-                        qtyTotal = x.qty,
-                        totalSold = x.total,
-                        avgTicket
-                    };
+                    productId = x.productId,
+                    productName = x.productName,
+                    qtyTotal = x.qty,
+                    totalSold = x.total,
+                    avgTicket = x.qty > 0 ? (x.total / x.qty) : 0m
                 })
                 .OrderByDescending(x => x.totalSold)
                 .ThenByDescending(x => x.qtyTotal)
@@ -239,8 +327,7 @@ public static class ReportsEndpoints
 
             return Results.Ok(rows);
         });
-
-        app.MapGet("/api/reports/recharges-summary", async Task<IResult> (
+app.MapGet("/api/reports/recharges-summary", async Task<IResult> (
             CashlessContext db,
             HttpContext http,
             IAuthService auth,
@@ -260,9 +347,8 @@ public static class ReportsEndpoints
             var fest = await TryGetFestivalRangeAsync(db, tenantId, http.Request);
             if (fest is not null) range = ClampRange(range, fest.Value);
 
-            var baseQuery = db.Transactions
-                .Where(t => t.TenantId == tenantId
-                    && t.Type == Cashless.Api.Models.TransactionType.TopUp
+            var baseQuery = TxForTenant(db, tenantId)
+                .Where(t => t.Type == Cashless.Api.Models.TransactionType.TopUp
                     && t.CreatedAt >= range.From
                     && t.CreatedAt < range.To);
 
@@ -406,9 +492,8 @@ public static class ReportsEndpoints
             var fest = await TryGetFestivalRangeAsync(db, tenantId, http.Request);
             if (fest is not null) range = ClampRange(range, fest.Value);
 
-            var baseQuery = db.Transactions
-                .Where(t => t.TenantId == tenantId
-                    && t.Type == Cashless.Api.Models.TransactionType.TopUp
+            var baseQuery = TxForTenant(db, tenantId)
+                .Where(t => t.Type == Cashless.Api.Models.TransactionType.TopUp
                     && t.CreatedAt >= range.From
                     && t.CreatedAt < range.To);
 
@@ -434,8 +519,8 @@ public static class ReportsEndpoints
                 .ToListAsync();
 
             var opIds = rowsRaw.Where(x => x.OperatorId.HasValue).Select(x => x.OperatorId!.Value).Distinct().ToList();
-            var opMap = await db.Operators
-                .Where(o => o.TenantId == tenantId && opIds.Contains(o.Id))
+            var opMap = await OperatorsForTenant(db, tenantId)
+                .Where(o => opIds.Contains(o.Id))
                 .ToDictionaryAsync(o => o.Id, o => o.Name);
 
             var rows = rowsRaw.Select(r =>
@@ -485,7 +570,8 @@ public static class ReportsEndpoints
             IAuthService auth,
             string? from,
             string? to,
-            int? cashierId)
+            int? cashierId,
+            string? scope)
         {
             var (op, fail) = await RequireCashierOrAdmin(db, http, auth);
             if (fail is not null) return fail;
@@ -496,10 +582,13 @@ public static class ReportsEndpoints
             var isBoss = IsBoss(op);
             var isCashier = op.Role == Cashless.Api.Models.OperatorRole.Cajero;
             int? targetCashierId = isCashier ? op.Id : (cashierId > 0 ? cashierId : null);
+            var shiftScope = NormalizeShiftScope(scope, op);
 
             var range = GetMexicoRange(from, to);
             var fest = await TryGetFestivalRangeAsync(db, tenantId, http.Request);
             if (fest is not null) range = ClampRange(range, fest.Value);
+            var hasFestivalHeader = http.Request.Headers.ContainsKey("X-Festival-Id");
+            Console.WriteLine($"[CASHIER_SUMMARY] tenantId={tenantId} opId={op.Id} role={op.Role} scope={shiftScope} from={from ?? "-"} to={to ?? "-"} rangeFrom={range.From:O} rangeToExcl={range.To:O} targetCashierId={(targetCashierId?.ToString() ?? "null")} hasFestivalHeader={hasFestivalHeader}");
 
             if ((isAdmin || isBoss) && targetCashierId.HasValue)
             {
@@ -507,15 +596,30 @@ public static class ReportsEndpoints
                 if (!existsCashier) return Results.NotFound(new { message = "Cajero no encontrado." });
             }
 
-            var topups = await db.Transactions
+            var isBarraScope = shiftScope == "barra";
+            var shiftIdsQuery = db.Shifts
+                .Where(s => s.TenantId == tenantId
+                    && (!targetCashierId.HasValue || s.CashierId == targetCashierId.Value));
+            shiftIdsQuery = isBarraScope
+                ? shiftIdsQuery.Where(s => s.BoxId.HasValue && s.BoxId.Value > 0)
+                : shiftIdsQuery.Where(s => !s.BoxId.HasValue || s.BoxId.Value <= 0);
+            var scopedShiftIds = await shiftIdsQuery
+                .Select(s => s.Id)
+                .ToListAsync();
+
+            var topups = await TxForTenant(db, tenantId)
                 .Where(t =>
-                    t.TenantId == tenantId
-                    && t.Type == Cashless.Api.Models.TransactionType.TopUp
+                    t.Type == Cashless.Api.Models.TransactionType.TopUp
                     && (!targetCashierId.HasValue || t.OperatorId == targetCashierId.Value)
+                    && (
+                        (shiftScope == "caja" && !t.ShiftId.HasValue)
+                        || (t.ShiftId.HasValue && scopedShiftIds.Contains(t.ShiftId.Value))
+                    )
                     && t.CreatedAt >= range.From
                     && t.CreatedAt < range.To)
-                .Select(t => new { t.Id, t.Amount, t.Note, t.ShiftId, t.OperatorId })
+                .Select(t => new { t.Id, t.Amount, t.Note, t.ShiftId, t.OperatorId, t.CreatedAt })
                 .ToListAsync();
+            var topupsLegacyNoShift = topups.Count(x => !x.ShiftId.HasValue);
 
             var breakdown = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
             {
@@ -546,45 +650,44 @@ public static class ReportsEndpoints
                 breakdown[method] += tx.Amount;
             }
 
-            var rechargeRows = await db.Recharges
-                .Where(r =>
-                    r.TenantId == tenantId
-                    && (!targetCashierId.HasValue || r.CashierId == targetCashierId.Value)
-                    && r.CreatedAt >= range.From
-                    && r.CreatedAt < range.To)
-                .Select(r => new { r.Id, r.Amount, r.PaymentMethod, r.ShiftId, r.CashierId })
-                .ToListAsync();
-
-            foreach (var rc in rechargeRows)
-            {
-                var method = NormalizePaymentMethod(rc.PaymentMethod);
-                if (!breakdown.ContainsKey(method)) method = "OTRO";
-                breakdown[method] += rc.Amount;
-            }
-
-            var totalRecargas = topups.Count + rechargeRows.Count;
-            var totalRecargado = topups.Sum(x => x.Amount) + rechargeRows.Sum(x => x.Amount);
+            // Fuente de verdad para recargas de caja: Transactions(Type=TopUp).
+            // Recharges puede coexistir por flujos legacy; sumarlo aquÃ­ duplica conteos/montos.
+            Console.WriteLine($"[CASHIER_SUMMARY] topups={topups.Count} topupsLegacyNoShift={topupsLegacyNoShift} rechargesIgnoredForTotals=true");
+            var totalRecargas = topups.Count;
+            var totalRecargado = topups.Sum(x => x.Amount);
 
             object? currentShiftSummary = null;
             if (targetCashierId.HasValue)
             {
-                var currentShift = await db.Shifts
-                    .Where(s => s.TenantId == tenantId && s.CashierId == targetCashierId.Value && s.Status == "Open" && s.ClosedAt == null)
+                var currentShiftQuery = db.Shifts
+                    .Where(s => (s.TenantId == tenantId || s.TenantId == 0)
+                        && s.CashierId == targetCashierId.Value
+                        && s.Status == "Open"
+                        && s.ClosedAt == null);
+                currentShiftQuery = isBarraScope
+                    ? currentShiftQuery.Where(s => s.BoxId.HasValue && s.BoxId.Value > 0)
+                    : currentShiftQuery.Where(s => !s.BoxId.HasValue || s.BoxId.Value <= 0);
+                var currentShift = await currentShiftQuery
                     .OrderByDescending(s => s.Id)
                     .Select(s => new { s.Id, s.OpenedAt, s.BoxId })
                     .FirstOrDefaultAsync();
 
                 if (currentShift is not null)
                 {
-                    var shiftTopups = topups.Where(x => x.ShiftId == currentShift.Id).ToList();
-                    var shiftRecharges = rechargeRows.Where(x => x.ShiftId == currentShift.Id).ToList();
+                    var shiftTopups = topups.Where(x =>
+                        x.ShiftId == currentShift.Id
+                        || (!x.ShiftId.HasValue
+                            && x.OperatorId == targetCashierId.Value
+                            && x.CreatedAt >= currentShift.OpenedAt
+                            && x.CreatedAt <= DateTimeProvider.NowMexico()))
+                        .ToList();
                     currentShiftSummary = new
                     {
                         shiftId = currentShift.Id,
                         currentShift.OpenedAt,
                         currentShift.BoxId,
-                        totalRecargas = shiftTopups.Count + shiftRecharges.Count,
-                        totalRecargado = shiftTopups.Sum(x => x.Amount) + shiftRecharges.Sum(x => x.Amount)
+                        totalRecargas = shiftTopups.Count,
+                        totalRecargado = shiftTopups.Sum(x => x.Amount)
                     };
                 }
             }
@@ -593,6 +696,7 @@ public static class ReportsEndpoints
             {
                 from = range.From,
                 to = range.To,
+                shiftScope,
                 cashierId = targetCashierId,
                 scope = targetCashierId.HasValue ? "cashier" : "tenant_topups",
                 totalRecargas,
@@ -638,7 +742,7 @@ public static class ReportsEndpoints
             string? q,
             int take = 100,
             int skip = 0,
-            bool export = false) =>
+            string? export = null) =>
         {
             var (op, fail) = await RequireReportsAccess(db, http, auth);
             if (fail is not null) return fail;
@@ -650,13 +754,16 @@ public static class ReportsEndpoints
             var fest = await TryGetFestivalRangeAsync(db, tenantId, http.Request);
             if (fest is not null) range = ClampRange(range, fest.Value);
 
+            var exportAll = string.Equals(export, "1", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(export, "true", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(export, "yes", StringComparison.OrdinalIgnoreCase);
+
             take = Math.Clamp(take, 1, 200);
             skip = Math.Max(skip, 0);
             var queryText = (q ?? string.Empty).Trim().ToLowerInvariant();
 
-            var txQuery = db.Transactions
-                .Where(t => t.TenantId == tenantId
-                    && t.Type == Cashless.Api.Models.TransactionType.Charge
+            var txQuery = TxForTenant(db, tenantId)
+                .Where(t => t.Type == Cashless.Api.Models.TransactionType.Charge
                     && t.CreatedAt >= range.From
                     && t.CreatedAt < range.To);
 
@@ -681,11 +788,11 @@ public static class ReportsEndpoints
             var areaIds = allRowsRaw.Where(x => x.AreaId.HasValue).Select(x => x.AreaId!.Value).Distinct().ToList();
             var opIds = allRowsRaw.Where(x => x.OperatorId.HasValue).Select(x => x.OperatorId!.Value).Distinct().ToList();
 
-            var areaMap = await db.Areas
-                .Where(a => a.TenantId == tenantId && areaIds.Contains(a.Id))
+            var areaMap = await AreasForTenant(db, tenantId)
+                .Where(a => areaIds.Contains(a.Id))
                 .ToDictionaryAsync(a => a.Id, a => a.Name);
-            var opMap = await db.Operators
-                .Where(o => o.TenantId == tenantId && opIds.Contains(o.Id))
+            var opMap = await OperatorsForTenant(db, tenantId)
+                .Where(o => opIds.Contains(o.Id))
                 .ToDictionaryAsync(o => o.Id, o => o.Name);
 
             var rowsAll = allRowsRaw.Select(x =>
@@ -770,7 +877,7 @@ public static class ReportsEndpoints
             };
 
             List<object> items;
-            if (export)
+            if (exportAll)
             {
                 items = rowsAll
                     .OrderByDescending(r => r.id)
@@ -863,7 +970,11 @@ public static class ReportsEndpoints
     {
         var from = baseRange.From > festivalRange.From ? baseRange.From : festivalRange.From;
         var to = baseRange.To < festivalRange.To ? baseRange.To : festivalRange.To;
-        if (to <= from) to = from.AddMinutes(1);
+        if (to <= from)
+        {
+            // Si no hay interseccion, no aplicar clamp para no dejar reportes vacios por festivalId viejo.
+            return baseRange;
+        }
         return (from, to);
     }
 
@@ -877,4 +988,15 @@ public static class ReportsEndpoints
             _ => string.IsNullOrWhiteSpace(m) ? "EFECTIVO" : m
         };
     }
+
+    private static string NormalizeShiftScope(string? scope, Cashless.Api.Models.Operator op)
+    {
+        var raw = (scope ?? string.Empty).Trim().ToLowerInvariant();
+        if (raw == "barra" || raw == "bar") return "barra";
+        if (raw == "caja" || raw == "cashier" || raw == "cash") return "caja";
+        return op.Role == Cashless.Api.Models.OperatorRole.JefeDeBarra ? "barra" : "caja";
+    }
+
 }
+
+

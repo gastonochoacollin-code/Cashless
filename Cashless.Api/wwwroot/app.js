@@ -19,7 +19,7 @@ async function api(path, opts){
 }
 
 async function loadUsers(){
-  const users = await api("/users");
+  const users = await api("/api/users");
   userSelect.innerHTML = "";
   users.forEach(u => {
     const opt = document.createElement("option");
@@ -38,7 +38,7 @@ async function loadUsers(){
 document.getElementById("btnCreateUser").onclick = async () => {
   try{
     const name = document.getElementById("userName").value.trim();
-    const u = await api("/users", {
+    const u = await api("/api/users", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ name })
@@ -62,7 +62,7 @@ document.getElementById("btnReloadUsers").onclick = async () => {
 
 document.getElementById("btnGetLastUid").onclick = async () => {
   try{
-    const data = await api("/last-uid");
+    const data = await api("/api/last-uid");
     const uid = data.uid;
     document.getElementById("lastUid").textContent = uid;
     document.getElementById("uidInput").value = uid;
@@ -78,7 +78,7 @@ document.getElementById("btnAssign").onclick = async () => {
   try{
     const userId = parseInt(userSelect.value, 10);
     const uid = document.getElementById("uidInput").value.trim().toUpperCase();
-    const data = await api("/assign-card", {
+    const data = await api("/api/assign-card", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ userId, uid })
@@ -109,7 +109,7 @@ document.getElementById("btnTopup").onclick = async () => {
   try{
     const uid = document.getElementById("topupUid").value.trim().toUpperCase();
     const amount = parseFloat(document.getElementById("topupAmount").value);
-    const data = await api(`/topup`, {
+    const data = await api(`/api/topup`, {
       method: "POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ uid, amount })

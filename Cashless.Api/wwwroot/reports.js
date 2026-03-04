@@ -2,11 +2,9 @@
 (() => {
   const el = (id) => document.getElementById(id);
   const FILTER_KEY = "cashless.reports.filters";
-  const role = String(getSession()?.role || getSession()?.Role || "").trim().toLowerCase();
-  const roleNorm = role.replace(/[\s_\-]/g, "");
-  const isAdmin = roleNorm === "admin" || roleNorm === "superadmin";
-  const isBoss = roleNorm.startsWith("jefe");
-  const canViewGlobalReports = isAdmin || isBoss;
+  const roleName = currentRoleName();
+  const isAdmin = roleName === "Admin" || roleName === "SuperAdmin";
+  const canViewGlobalReports = currentUserCan("reports_view");
 
   function showErr(msg){
     const box = el("errBox");

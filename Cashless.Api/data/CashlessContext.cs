@@ -27,6 +27,8 @@ public class CashlessContext : DbContext
     public DbSet<Shift> Shifts => Set<Shift>();
     public DbSet<CardAudit> CardAudits => Set<CardAudit>();
     public DbSet<Recharge> Recharges => Set<Recharge>();
+    public DbSet<InventoryMovement> InventoryMovements => Set<InventoryMovement>();
+    public DbSet<BalanceTransfer> BalanceTransfers => Set<BalanceTransfer>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -135,5 +137,50 @@ public class CashlessContext : DbContext
 
         modelBuilder.Entity<Recharge>()
             .HasIndex(r => new { r.TenantId, r.CardUid, r.CreatedAt });
+
+        modelBuilder.Entity<InventoryMovement>()
+            .Property(r => r.Qty)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<InventoryMovement>()
+            .Property(r => r.Direction)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<InventoryMovement>()
+            .Property(r => r.Comment)
+            .HasMaxLength(500);
+
+        modelBuilder.Entity<InventoryMovement>()
+            .HasIndex(r => new { r.TenantId, r.AreaId, r.ProductId, r.CreatedAt });
+
+        modelBuilder.Entity<BalanceTransfer>()
+            .Property(r => r.Amount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<BalanceTransfer>()
+            .Property(r => r.Comment)
+            .HasMaxLength(500);
+
+        modelBuilder.Entity<BalanceTransfer>()
+            .HasOne(r => r.FromUser)
+            .WithMany()
+            .HasForeignKey(r => r.FromUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<BalanceTransfer>()
+            .HasOne(r => r.ToUser)
+            .WithMany()
+            .HasForeignKey(r => r.ToUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<BalanceTransfer>()
+            .HasOne(r => r.Operator)
+            .WithMany()
+            .HasForeignKey(r => r.OperatorId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<BalanceTransfer>()
+            .HasIndex(r => new { r.TenantId, r.FromUserId, r.ToUserId, r.CreatedAt });
     }
 }

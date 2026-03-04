@@ -1,5 +1,9 @@
 // wwwroot/barras.js
 requireSession();
+const roleName = currentRoleName();
+if(roleName !== "JefeDeBarra" && roleName !== "JefeDeStand"){
+  requireUiPermission("areas_manage");
+}
 const role = String(getSession()?.role || getSession()?.Role || "").trim().toLowerCase();
 if(role === "cajero" || role === "cashier"){
   window.location.href = "/dashboard-caja/";

@@ -50,7 +50,7 @@
         <div class="muted" id="sessionInfo">Sesion</div>
       </div>
       <div class="row">
-        <a class="btn alt" href="/dashboard.html">Dashboard</a>
+        <a class="btn alt" id="btnDashboard" href="/dashboard.html">Dashboard</a>
         <button id="btnLogout" class="btn danger">Cerrar sesion</button>
       </div>
     </div>
@@ -79,6 +79,14 @@
       <div class="card">
         <div class="muted">Monto</div>
         <input id="amountInput" class="field" type="number" inputmode="decimal" placeholder="Ej: 200" style="margin-top:6px" />
+        <div class="muted" style="margin-top:10px">Forma de pago</div>
+        <select id="paymentMethod" class="field" style="margin-top:6px">
+          <option value="efectivo" selected>Efectivo</option>
+          <option value="tarjeta">Tarjeta</option>
+          <option value="transferencia">Transferencia</option>
+          <option value="cripto">Cripto</option>
+          <option value="otro">Otro</option>
+        </select>
         <div class="row" style="margin-top:10px">
           <button id="btnTopup" class="btn">Confirmar recarga</button>
           <button id="btnQuick500" class="btn alt" type="button">+ $500</button>

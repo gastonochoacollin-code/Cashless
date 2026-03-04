@@ -2,14 +2,15 @@ const session = requireSession();
 if (typeof renderAppMenu === "function") {
   renderAppMenu("appMenu", "/operators.html");
 }
-const role = String(session?.role || session?.Role || "");
-const isAdmin = role === "Admin" || role === "SuperAdmin";
-if(!isAdmin){
+const canManageOperators = typeof currentUserCan === "function" ? currentUserCan("operators_manage") : false;
+if(!canManageOperators){
   window.location.href = "/ops.html";
-  throw new Error("No admin role");
+  throw new Error("No operators permission");
 }
 
 function $(id){ return document.getElementById(id); }
+
+const ROLE_OPTIONS = ["JefeDeBarra","JefeDeStand","JefeOperativo","CajeroDeBarra","Cajero","Admin","SuperAdmin"];
 
 function esc(v){
   const s = String(v ?? "");
@@ -24,6 +25,18 @@ function setMsg(id, text, isErr=false){
 }
 
 let OPS = [];
+
+function initCreateRoleSelect(){
+  const select = $("role");
+  if(!select) return;
+  const current = String(select.value || "JefeDeBarra");
+  select.innerHTML = ROLE_OPTIONS.map((role) =>
+    `<option value="${role}" ${role === current ? "selected" : ""}>${role}</option>`
+  ).join("");
+  if(!ROLE_OPTIONS.includes(current)){
+    select.value = "JefeDeBarra";
+  }
+}
 
 function matches(op, q, onlyActive){
   if(onlyActive && !op.isActive) return false;
@@ -52,7 +65,7 @@ function render(){
       <td><input class="field" data-id="${o.id}" data-f="name" value="${esc(o.name)}" style="min-width:220px"/></td>
       <td>
         <select class="field" data-id="${o.id}" data-f="role" style="min-width:160px">
-          ${["JefeDeBarra","JefeDeStand","JefeOperativo","Cajero","Admin","SuperAdmin"].map(r =>
+          ${ROLE_OPTIONS.map(r =>
             `<option value="${r}" ${String(o.role)===r?"selected":""}>${r}</option>`
           ).join("")}
         </select>
@@ -108,7 +121,7 @@ async function loadOperators(){
   OPS = Array.isArray(list) ? list.map(x => ({
     id: x.id,
     name: x.name,
-    role: x.role ?? x.Role,
+    role: (typeof normalizeRoleName === "function" ? (normalizeRoleName(x.role ?? x.Role) || (x.role ?? x.Role)) : (x.role ?? x.Role)),
     areaId: x.areaId ?? x.AreaId,
     isActive: x.isActive
   })) : [];
@@ -186,4 +199,5 @@ $("btnLogout").addEventListener("click", ()=>{
 });
 
 loadOperators().catch(e=>setMsg("msg","Error cargando /api/operators: "+(e.message||e),true));
+initCreateRoleSelect();
 

@@ -1,4 +1,4 @@
-ï»¿(() => {
+(() => {
   const el = (id) => document.getElementById(id);
   const state = { skip: 0, take: 50, rows: [], allRows: [] };
   const totalsEls = {
@@ -47,7 +47,7 @@
     if(donationLabel) donationLabel.textContent = money(t.donation);
     if(countLabel){
       if(totalCount <= 0){
-        countLabel.textContent = "0 Â· Sin datos para el rango/festival actual";
+        countLabel.textContent = "0 · Sin datos para el rango/festival actual";
       }else{
         countLabel.textContent = `${totalCount}`;
       }
@@ -196,7 +196,7 @@
       renderTotals(totals, totalCount, pageOnly);
       const fromLabel = (data?.from || el("fromDate").value || "").toString().slice(0, 19);
       const toLabel = (data?.to || el("toDate").value || "").toString().slice(0, 19);
-      el("rangeInfo").textContent = `Rango aplicado: ${fromLabel} -> ${toLabel} Â· skip=${state.skip} take=${state.take}`;
+      el("rangeInfo").textContent = `Rango aplicado: ${fromLabel} -> ${toLabel} · skip=${state.skip} take=${state.take}`;
       setMsg(state.rows.length ? `OK - ${state.rows.length} venta(s)` : "Sin datos para el rango/festival actual.");
     }catch(e){
       state.rows = [];
@@ -259,7 +259,7 @@
     const qs = buildQuery();
     qs.set("skip", "0");
     qs.set("take", "5000");
-    qs.set("export", "1");
+    qs.set("export", "true");
     const url = `/api/sales?${qs.toString()}`;
 
     const hdr = apiHeaders();
@@ -318,3 +318,4 @@
     load();
   });
 })();
+

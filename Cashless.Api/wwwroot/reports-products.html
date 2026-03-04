@@ -29,10 +29,11 @@
     }
     .btn.alt{background:var(--alt)}
     .btn.small{padding:8px 12px;border-radius:10px;font-size:13px}
+    .field{background:var(--field);border:1px solid var(--border);color:#fff;border-radius:12px;padding:10px 12px;outline:none}
     table{width:100%;border-collapse:collapse}
     th,td{padding:10px 8px;border-bottom:1px solid var(--border);vertical-align:top}
     th{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#cfd3da;text-align:left}
-    .statsRow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:10px}
+    .statsRow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-top:10px}
     @media (max-width:900px){.statsRow{grid-template-columns:repeat(2,minmax(0,1fr))}}
     @media (max-width:520px){.statsRow{grid-template-columns:1fr}}
     .statCard{background:#10101a;border:1px solid var(--border);border-radius:14px;padding:12px}
@@ -69,21 +70,23 @@
       </div>
     </div>
 
+    <div class="card no-print" style="margin-top:12px">
+      <div class="row">
+        <label class="muted">Desde</label>
+        <input id="fromDate" class="field" type="date" />
+        <label class="muted">Hasta</label>
+        <input id="toDate" class="field" type="date" />
+        <button id="btnApply" class="btn small">Aplicar</button>
+        <button id="btnPrint" class="btn small alt">Imprimir PDF</button>
+        <button id="btnExport" class="btn small alt">Export CSV</button>
+      </div>
+      <div class="muted" id="filtersInfo" style="margin-top:6px">-</div>
+    </div>
+
     <div id="msgBox" class="muted" style="margin-top:8px"></div>
     <div id="errorBox" class="card" style="margin-top:10px;border-color:#884040;color:#ffd1d1;display:none"></div>
 
     <div class="card" style="margin-top:12px">
-      <div class="row" style="justify-content:space-between">
-        <div>
-          <div style="font-weight:1000">Reporte de productos</div>
-          <div class="muted">Agrupado por producto.</div>
-        </div>
-        <div class="row">
-          <button id="btnExport" class="btn small alt">Export CSV</button>
-          <button id="btnPrint" class="btn small alt">Imprimir PDF</button>
-        </div>
-      </div>
-
       <div id="printHeader" class="printHeader">
         <h2>Reporte por productos</h2>
         <div class="muted" id="printFestival">Festival: -</div>
@@ -105,8 +108,16 @@
           <div class="statValue" id="statProducts">0</div>
         </div>
         <div class="statCard">
-          <div class="statLabel">Ticket promedio</div>
+          <div class="statLabel">Ticket promedio (unidad)</div>
           <div class="statValue" id="statAvgTicket">$0.00</div>
+        </div>
+        <div class="statCard">
+          <div class="statLabel">Producto mÃ¡s vendido</div>
+          <div class="statValue" id="statTopQty">-</div>
+        </div>
+        <div class="statCard">
+          <div class="statLabel">Mayor venta ($)</div>
+          <div class="statValue" id="statTopTotal">-</div>
         </div>
       </div>
 

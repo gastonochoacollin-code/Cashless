@@ -36,7 +36,7 @@
 
     <div id="unauth" class="card" style="display:none">
       <h2>No autorizado</h2>
-      <div class="status">Esta pantalla es para Caja (Cajero/JefeOperativo/Admin/SuperAdmin).</div>
+      <div class="status">Esta pantalla es para Caja (Cajero/JefeDeBarra/JefeOperativo/Admin/SuperAdmin).</div>
       <div class="row" style="margin-top:10px"><a class="btn alt" href="/dashboard.html">Ir al dashboard normal</a></div>
     </div>
 
@@ -46,7 +46,7 @@
         <div class="muted" id="printMeta"></div>
       </div>
       <div class="card">
-        <h1 style="margin:0;font-size:24px">Reportes (Cajero)</h1>
+        <h1 id="reportTitle" style="margin:0;font-size:24px">Reportes (Cajero)</h1>
         <div class="muted" id="sessionInfo">-</div>
         <div id="status" class="status" style="margin-top:10px">Listo</div>
       </div>
@@ -57,8 +57,22 @@
           <input id="fromDate" type="date" class="field">
           <label class="muted">Hasta</label>
           <input id="toDate" type="date" class="field">
+          <span id="shiftScopeWrap" style="display:none" class="row">
+            <label class="muted">Turnos</label>
+            <select id="shiftScope" class="field">
+              <option value="caja">Caja</option>
+              <option value="barra">Barra</option>
+            </select>
+          </span>
+          <span id="cashierPickerWrap" style="display:none" class="row">
+            <label class="muted">Operador</label>
+            <select id="cashierSelect" class="field"></select>
+          </span>
+          <button id="btnOpenShift" class="btn alt">Abrir mi turno</button>
+          <button id="btnCloseShift" class="btn alt">Cerrar mi turno</button>
           <button id="btnReload" class="btn">Actualizar</button>
         </div>
+        <div id="debugBanner" class="status muted" style="margin-top:10px;white-space:pre-wrap">Debug: -</div>
       </div>
 
       <div class="grid" style="margin-top:12px">
@@ -102,7 +116,7 @@
       </div>
 
       <div class="card" style="margin-top:12px">
-        <h2>Turnos del cajero</h2>
+        <h2 id="shiftTableTitle">Turnos del cajero</h2>
         <div class="table-wrap">
           <table>
             <thead>

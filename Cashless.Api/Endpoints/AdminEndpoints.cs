@@ -72,6 +72,11 @@ public static class AdminEndpoints
             "products.view"
         }, StringComparer.OrdinalIgnoreCase),
 
+        [OperatorRole.Bartender] = new HashSet<string>(new[]
+        {
+            "pos.charge"
+        }, StringComparer.OrdinalIgnoreCase),
+
         [OperatorRole.Cajero] = new HashSet<string>(new[]
         {
             "dashboard.view",
@@ -249,6 +254,61 @@ public static class AdminEndpoints
             return Results.Ok(new { ok = true });
         });
 
+        // ===================== RESET OPERATIVO (ADMIN) =====================
+        app.MapPost("/api/admin/reset-ops", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth) =>
+        {
+            var (op, fail) = await RequireAdmin(db, http, auth);
+            if (fail is not null) return fail;
+
+            var cs = db.Database.GetDbConnection().ConnectionString ?? string.Empty;
+            var dbPath = TryGetSqlitePath(cs);
+            if (string.IsNullOrWhiteSpace(dbPath))
+                return Results.BadRequest(new { message = "No se pudo determinar la ruta de la base de datos." });
+
+            var fullDbPath = Path.GetFullPath(dbPath, AppContext.BaseDirectory);
+            if (!System.IO.File.Exists(fullDbPath))
+                return Results.BadRequest(new { message = $"No existe la base de datos en {fullDbPath}" });
+
+            var backupDir = Path.Combine(AppContext.BaseDirectory, "backups");
+            Directory.CreateDirectory(backupDir);
+            var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            var backupPath = Path.Combine(backupDir, $"cashless_{stamp}.db");
+            System.IO.File.Copy(fullDbPath, backupPath, overwrite: true);
+
+            await using var tx = await db.Database.BeginTransactionAsync();
+
+            var deletedSaleItems = await db.Database.ExecuteSqlRawAsync("DELETE FROM SaleItems;");
+            var deletedSales = await db.Database.ExecuteSqlRawAsync("DELETE FROM Sales;");
+            var deletedRecharges = await db.Database.ExecuteSqlRawAsync("DELETE FROM Recharges;");
+            var deletedTransactions = await db.Database.ExecuteSqlRawAsync("DELETE FROM Transactions;");
+            var deletedCardAudits = await db.Database.ExecuteSqlRawAsync("DELETE FROM CardAudits;");
+            var deletedShifts = await db.Database.ExecuteSqlRawAsync("DELETE FROM Shifts;");
+            var updatedUsers = await db.Database.ExecuteSqlRawAsync("UPDATE Users SET TotalSpent = 0;");
+
+            await db.Database.ExecuteSqlRawAsync(@"
+DELETE FROM sqlite_sequence WHERE name IN (
+  'SaleItems','Sales','Recharges','Transactions','CardAudits','Shifts'
+);");
+
+            await tx.CommitAsync();
+
+            return Results.Ok(new
+            {
+                ok = true,
+                backup = backupPath,
+                deleted = new
+                {
+                    saleItems = deletedSaleItems,
+                    sales = deletedSales,
+                    recharges = deletedRecharges,
+                    transactions = deletedTransactions,
+                    cardAudits = deletedCardAudits,
+                    shifts = deletedShifts,
+                    usersUpdated = updatedUsers
+                }
+            });
+        });
+
         app.MapPut("/api/festivals/{id:int}", async Task<IResult> (int id, FestivalCreateRequest dto, CashlessContext db, HttpContext http, IAuthService auth) =>
         {
             var (op, fail) = await RequireAdmin(db, http, auth);
@@ -295,7 +355,6 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
-            if (op.Role == OperatorRole.Cajero) return Forbidden("El rol Cajero no puede ver catalogo de areas.");
             var tenantId = op.TenantId;
 
             var areas = await db.Areas
@@ -399,7 +458,6 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
-            if (op.Role == OperatorRole.Cajero) return Forbidden("El rol Cajero no puede ver catalogo de productos.");
             var tenantId = op.TenantId;
 
             var list = await db.Products
@@ -505,7 +563,6 @@ public static class AdminEndpoints
         {
             var op = await auth.AuthenticateAsync(db, http.Request);
             if (op is null) return Results.Unauthorized();
-            if (op.Role == OperatorRole.Cajero) return Forbidden("El rol Cajero no puede ver menus de catalogo.");
             var tenantId = op.TenantId;
 
             var area = await db.Areas.FirstOrDefaultAsync(a => a.Id == areaId && a.TenantId == tenantId);
@@ -626,6 +683,408 @@ public static class AdminEndpoints
             return Results.NoContent();
         });
 
+        // ===================== INVENTARIOS - PROTEGIDO =====================
+        app.MapGet("/api/inventory/summary", async Task<IResult> (int? areaId, CashlessContext db, HttpContext http, IAuthService auth) =>
+        {
+            var (op, fail) = await RequireBarManager(db, http, auth);
+            if (fail is not null) return fail;
+            var tenantId = op!.TenantId;
+
+            int? targetAreaId = areaId.HasValue && areaId.Value > 0 ? areaId.Value : null;
+            if (targetAreaId.HasValue)
+            {
+                var areaExists = await db.Areas.AnyAsync(a => a.Id == targetAreaId.Value && a.TenantId == tenantId);
+                if (!areaExists) return Results.NotFound(new { message = "Area no existe" });
+            }
+
+            var areaCatalog = await db.Areas
+                .Where(a => a.TenantId == tenantId)
+                .OrderBy(a => a.Name)
+                .Select(a => new
+                {
+                    a.Id,
+                    a.Name
+                })
+                .ToListAsync();
+            var areaNameMap = areaCatalog.ToDictionary(x => x.Id, x => x.Name);
+
+            var products = await db.Products
+                .Where(p => p.TenantId == tenantId)
+                .OrderBy(p => p.Name)
+                .Select(p => new
+                {
+                    p.Id,
+                    p.Name,
+                    p.Category,
+                    p.Price,
+                    p.IsActive
+                })
+                .ToListAsync();
+
+            var warehouseMovementSeed = await db.InventoryMovements
+                .Where(m => m.TenantId == tenantId)
+                .Select(m => new
+                {
+                    m.ProductId,
+                    m.Direction,
+                    m.Qty
+                })
+                .ToListAsync();
+            var warehouseRows = warehouseMovementSeed
+                .GroupBy(m => m.ProductId)
+                .Select(g => new
+                {
+                    ProductId = g.Key,
+                    Qty = g.Sum(x =>
+                        x.Direction == "stock_in" ? x.Qty :
+                        x.Direction == "to_warehouse" ? x.Qty :
+                        x.Direction == "to_bar" ? -x.Qty : 0m)
+                })
+                .ToList();
+            var warehouseMap = warehouseRows.ToDictionary(x => x.ProductId, x => x.Qty);
+
+            Dictionary<int, decimal> barMap = new();
+            Dictionary<int, int> soldMap = new();
+            var menuSeed = new List<(int ProductId, string ProductName, decimal BasePrice, decimal? PriceOverride, bool IsActive)>();
+
+            if (targetAreaId.HasValue)
+            {
+                var movedSeed = await db.InventoryMovements
+                    .Where(m => m.TenantId == tenantId && m.AreaId == targetAreaId.Value)
+                    .Select(m => new
+                    {
+                        m.ProductId,
+                        m.Direction,
+                        m.Qty
+                    })
+                    .ToListAsync();
+                var movedRows = movedSeed
+                    .GroupBy(m => m.ProductId)
+                    .Select(g => new
+                    {
+                        ProductId = g.Key,
+                        Qty = g.Sum(x =>
+                            x.Direction == "to_bar" ? x.Qty :
+                            x.Direction == "to_warehouse" ? -x.Qty : 0m)
+                    })
+                    .ToList();
+                barMap = movedRows.ToDictionary(x => x.ProductId, x => x.Qty);
+
+                var soldRows = await (
+                    from item in db.SaleItems
+                    join sale in db.Sales on item.SaleId equals sale.Id
+                    where item.TenantId == tenantId
+                        && sale.TenantId == tenantId
+                        && sale.AreaId == targetAreaId.Value
+                    group item by item.ProductId into g
+                    select new
+                    {
+                        ProductId = g.Key,
+                        Qty = g.Sum(x => x.Qty)
+                    }
+                ).ToListAsync();
+                soldMap = soldRows.ToDictionary(x => x.ProductId, x => x.Qty);
+
+                var rawMenuRows = await db.AreaProducts
+                    .Include(ap => ap.Product)
+                    .Where(ap => ap.TenantId == tenantId && ap.AreaId == targetAreaId.Value)
+                    .OrderBy(ap => ap.Product.Name)
+                    .Select(ap => new
+                    {
+                        ap.ProductId,
+                        productName = ap.Product.Name,
+                        basePrice = ap.Product.Price,
+                        ap.PriceOverride,
+                        ap.IsActive
+                    })
+                    .ToListAsync();
+                menuSeed = rawMenuRows
+                    .Select(x => (x.ProductId, x.productName, x.basePrice, x.PriceOverride, x.IsActive))
+                    .ToList();
+            }
+
+            var snapshotMovementSeed = await db.InventoryMovements
+                .Where(m => m.TenantId == tenantId && m.AreaId.HasValue)
+                .Select(m => new
+                {
+                    AreaId = m.AreaId!.Value,
+                    m.ProductId,
+                    m.Direction,
+                    m.Qty
+                })
+                .ToListAsync();
+            var snapshotMovementRows = snapshotMovementSeed
+                .GroupBy(m => new { m.AreaId, m.ProductId })
+                .Select(g => new
+                {
+                    g.Key.AreaId,
+                    g.Key.ProductId,
+                    Qty = g.Sum(x =>
+                        x.Direction == "to_bar" ? x.Qty :
+                        x.Direction == "to_warehouse" ? -x.Qty : 0m)
+                })
+                .ToList();
+
+            var snapshotSoldRows = await (
+                from item in db.SaleItems
+                join sale in db.Sales on item.SaleId equals sale.Id
+                where item.TenantId == tenantId
+                    && sale.TenantId == tenantId
+                    && sale.AreaId.HasValue
+                group item by new { AreaId = sale.AreaId!.Value, item.ProductId } into g
+                select new
+                {
+                    g.Key.AreaId,
+                    g.Key.ProductId,
+                    Qty = g.Sum(x => x.Qty)
+                }
+            ).ToListAsync();
+
+            var snapshotMovementMap = snapshotMovementRows.ToDictionary(
+                x => $"{x.AreaId}:{x.ProductId}",
+                x => x.Qty);
+            var snapshotSoldMap = snapshotSoldRows.ToDictionary(
+                x => $"{x.AreaId}:{x.ProductId}",
+                x => x.Qty);
+
+            var snapshotKeys = new HashSet<string>(snapshotMovementMap.Keys, StringComparer.Ordinal);
+            snapshotKeys.UnionWith(snapshotSoldMap.Keys);
+
+            var snapshot = snapshotKeys
+                .Select(key =>
+                {
+                    var parts = key.Split(':', 2);
+                    var snapAreaId = int.Parse(parts[0]);
+                    var snapProductId = int.Parse(parts[1]);
+                    var warehouseAvailable = warehouseMap.TryGetValue(snapProductId, out var warehouseQty)
+                        ? warehouseQty
+                        : 0m;
+                    var assigned = snapshotMovementMap.TryGetValue(key, out var barQty)
+                        ? barQty
+                        : 0m;
+                    var sold = snapshotSoldMap.TryGetValue(key, out var soldQty)
+                        ? soldQty
+                        : 0;
+                    return new
+                    {
+                        areaId = snapAreaId,
+                        areaName = areaNameMap.TryGetValue(snapAreaId, out var snapAreaName) ? snapAreaName : $"Area {snapAreaId}",
+                        productId = snapProductId,
+                        productName = products.FirstOrDefault(p => p.Id == snapProductId)?.Name ?? $"Producto {snapProductId}",
+                        warehouseQty = Math.Max(0m, warehouseAvailable),
+                        soldQty = Math.Max(0, sold),
+                        barQty = Math.Max(0m, assigned - sold)
+                    };
+                })
+                .OrderBy(x => x.areaId)
+                .ThenBy(x => x.productId)
+                .ToList();
+
+            var warehouse = products.Select(p => new
+            {
+                p.Id,
+                p.Name,
+                p.Category,
+                p.Price,
+                p.IsActive,
+                qty = Math.Max(0m, warehouseMap.TryGetValue(p.Id, out var qty) ? qty : 0m)
+            }).ToList();
+
+            var menu = menuSeed.Select(item =>
+            {
+                var productId = item.ProductId;
+                var moved = barMap.TryGetValue(productId, out var movedQty) ? movedQty : 0m;
+                var sold = soldMap.TryGetValue(productId, out var soldQty) ? soldQty : 0;
+                return new
+                {
+                    productId,
+                    productName = item.ProductName,
+                    basePrice = item.BasePrice,
+                    priceOverride = item.PriceOverride,
+                    soldQty = Math.Max(0, sold),
+                    qty = Math.Max(0m, moved - sold),
+                    isActive = item.IsActive
+                };
+            }).ToList();
+
+            return Results.Ok(new
+            {
+                areaId = targetAreaId,
+                areas = areaCatalog,
+                warehouse,
+                menu,
+                snapshot,
+                totals = new
+                {
+                    products = products.Count,
+                    warehouseUnits = warehouse.Sum(x => x.qty),
+                    barUnits = menu.Sum(x => x.qty)
+                }
+            });
+        });
+
+        app.MapGet("/api/inventory/movements", async Task<IResult> (string? from, string? to, int? areaId, CashlessContext db, HttpContext http, IAuthService auth) =>
+        {
+            var (op, fail) = await RequireBarManager(db, http, auth);
+            if (fail is not null) return fail;
+            var tenantId = op!.TenantId;
+
+            var fromDt = TryParseDateStart(from);
+            var toDt = TryParseDateEnd(to);
+
+            var query = db.InventoryMovements
+                .Include(m => m.Area)
+                .Include(m => m.Product)
+                .Include(m => m.Operator)
+                .Where(m => m.TenantId == tenantId);
+
+            if (fromDt.HasValue) query = query.Where(m => m.CreatedAt >= fromDt.Value);
+            if (toDt.HasValue) query = query.Where(m => m.CreatedAt <= toDt.Value);
+            if (areaId.HasValue && areaId.Value > 0)
+                query = query.Where(m => m.AreaId == areaId.Value);
+
+            var rows = await query
+                .OrderByDescending(m => m.CreatedAt)
+                .Select(m => new
+                {
+                    m.Id,
+                    m.CreatedAt,
+                    m.Direction,
+                    m.AreaId,
+                    areaName = m.Area != null ? m.Area.Name : "Almacen",
+                    m.ProductId,
+                    productName = m.Product.Name,
+                    m.Qty,
+                    m.OperatorId,
+                    operatorName = m.Operator.Name,
+                    m.Comment
+                })
+                .ToListAsync();
+
+            return Results.Ok(rows);
+        });
+
+        app.MapPost("/api/inventory/warehouse-in", async Task<IResult> (InventoryMovementUpsertDto dto, CashlessContext db, HttpContext http, IAuthService auth) =>
+        {
+            var (op, fail) = await RequireBarManager(db, http, auth);
+            if (fail is not null) return fail;
+            var tenantId = op!.TenantId;
+
+            if (dto.ProductId <= 0) return Results.BadRequest(new { message = "Producto requerido" });
+            if (dto.Qty <= 0) return Results.BadRequest(new { message = "Cantidad invalida" });
+
+            var product = await db.Products.FirstOrDefaultAsync(p => p.Id == dto.ProductId && p.TenantId == tenantId);
+            if (product is null) return Results.NotFound(new { message = "Producto no existe" });
+
+            var movement = new InventoryMovement
+            {
+                TenantId = tenantId,
+                ProductId = dto.ProductId,
+                AreaId = null,
+                Qty = dto.Qty,
+                Direction = "stock_in",
+                OperatorId = op.Id,
+                Comment = string.IsNullOrWhiteSpace(dto.Comment) ? null : dto.Comment.Trim(),
+                CreatedAt = Cashless.Api.Services.Infra.DateTimeProvider.NowMexico()
+            };
+
+            db.InventoryMovements.Add(movement);
+            await db.SaveChangesAsync();
+            return Results.Ok(new { movement.Id, movement.Direction, movement.Qty, movement.ProductId });
+        });
+
+        app.MapPost("/api/inventory/transfer", async Task<IResult> (InventoryMovementUpsertDto dto, CashlessContext db, HttpContext http, IAuthService auth) =>
+        {
+            var (op, fail) = await RequireBarManager(db, http, auth);
+            if (fail is not null) return fail;
+            var tenantId = op!.TenantId;
+
+            var direction = string.Equals(dto.Direction, "to_warehouse", StringComparison.OrdinalIgnoreCase)
+                ? "to_warehouse"
+                : "to_bar";
+
+            if (dto.ProductId <= 0) return Results.BadRequest(new { message = "Producto requerido" });
+            if (dto.AreaId is null || dto.AreaId.Value <= 0) return Results.BadRequest(new { message = "Area requerida" });
+            if (dto.Qty <= 0) return Results.BadRequest(new { message = "Cantidad invalida" });
+
+            var area = await db.Areas.FirstOrDefaultAsync(a => a.Id == dto.AreaId.Value && a.TenantId == tenantId);
+            if (area is null) return Results.NotFound(new { message = "Area no existe" });
+
+            var product = await db.Products.FirstOrDefaultAsync(p => p.Id == dto.ProductId && p.TenantId == tenantId);
+            if (product is null) return Results.NotFound(new { message = "Producto no existe" });
+
+            var inMenu = await db.AreaProducts.AnyAsync(ap =>
+                ap.TenantId == tenantId &&
+                ap.AreaId == dto.AreaId.Value &&
+                ap.ProductId == dto.ProductId);
+            if (!inMenu) return Results.BadRequest(new { message = "El producto no esta activo en el menu de esa barra." });
+
+            var warehouseSeed = await db.InventoryMovements
+                .Where(m => m.TenantId == tenantId && m.ProductId == dto.ProductId)
+                .Select(m => new
+                {
+                    m.Direction,
+                    m.Qty
+                })
+                .ToListAsync();
+            var warehouseQty = warehouseSeed
+                .Select(m =>
+                    m.Direction == "stock_in" ? m.Qty :
+                    m.Direction == "to_warehouse" ? m.Qty :
+                    m.Direction == "to_bar" ? -m.Qty : 0m)
+                .DefaultIfEmpty(0m)
+                .Sum();
+
+            var movedSeedForArea = await db.InventoryMovements
+                .Where(m => m.TenantId == tenantId && m.ProductId == dto.ProductId && m.AreaId == dto.AreaId.Value)
+                .Select(m => new
+                {
+                    m.Direction,
+                    m.Qty
+                })
+                .ToListAsync();
+            var movedToArea = movedSeedForArea
+                .Select(m =>
+                    m.Direction == "to_bar" ? m.Qty :
+                    m.Direction == "to_warehouse" ? -m.Qty : 0m)
+                .DefaultIfEmpty(0m)
+                .Sum();
+
+            var soldQty = await (
+                from item in db.SaleItems
+                join sale in db.Sales on item.SaleId equals sale.Id
+                where item.TenantId == tenantId
+                    && sale.TenantId == tenantId
+                    && sale.AreaId == dto.AreaId.Value
+                    && item.ProductId == dto.ProductId
+                select (int?)item.Qty
+            ).SumAsync() ?? 0;
+
+            var availableBarQty = Math.Max(0m, movedToArea - soldQty);
+
+            if (direction == "to_bar" && warehouseQty < dto.Qty)
+                return Results.BadRequest(new { message = "No hay suficiente inventario en almacen." });
+
+            if (direction == "to_warehouse" && availableBarQty < dto.Qty)
+                return Results.BadRequest(new { message = "No hay suficiente inventario disponible en la barra." });
+
+            var movement = new InventoryMovement
+            {
+                TenantId = tenantId,
+                ProductId = dto.ProductId,
+                AreaId = dto.AreaId.Value,
+                Qty = dto.Qty,
+                Direction = direction,
+                OperatorId = op.Id,
+                Comment = string.IsNullOrWhiteSpace(dto.Comment) ? null : dto.Comment.Trim(),
+                CreatedAt = Cashless.Api.Services.Infra.DateTimeProvider.NowMexico()
+            };
+
+            db.InventoryMovements.Add(movement);
+            await db.SaveChangesAsync();
+            return Results.Ok(new { movement.Id, movement.Direction, movement.Qty, movement.ProductId, movement.AreaId });
+        });
+
         // ===================== OPERATORS (COLABORADORES) - PROTEGIDO =====================
         app.MapGet("/api/operators", async Task<IResult> (CashlessContext db, HttpContext http, IAuthService auth) =>
         {
@@ -664,7 +1123,8 @@ public static class AdminEndpoints
             if (string.IsNullOrWhiteSpace(dto.Pin) || dto.Pin.Trim().Length < 4)
                 return Results.BadRequest(new { message = "PIN requerido (mínimo 4 dígitos)" });
 
-            if (!Enum.TryParse<OperatorRole>(dto.Role ?? "JefeDeBarra", true, out var parsedRole))
+            var createRole = NormalizeOperatorRoleInput(dto.Role ?? "JefeDeBarra");
+            if (!Enum.TryParse<OperatorRole>(createRole, true, out var parsedRole))
                 parsedRole = OperatorRole.JefeDeBarra;
 
             if (parsedRole == OperatorRole.SuperAdmin && op.Role != OperatorRole.SuperAdmin)
@@ -715,7 +1175,8 @@ public static class AdminEndpoints
             if (string.IsNullOrWhiteSpace(dto.Name))
                 return Results.BadRequest(new { message = "Nombre requerido" });
 
-            if (!Enum.TryParse<OperatorRole>(dto.Role ?? target.Role.ToString(), true, out var parsedRole))
+            var updateRole = NormalizeOperatorRoleInput(dto.Role ?? target.Role.ToString());
+            if (!Enum.TryParse<OperatorRole>(updateRole, true, out var parsedRole))
                 parsedRole = target.Role;
 
             if (parsedRole == OperatorRole.SuperAdmin && op.Role != OperatorRole.SuperAdmin)
@@ -932,7 +1393,7 @@ public static class AdminEndpoints
             if (fail is not null) return fail;
 
             // Respuesta en el formato que permisos.js espera:
-            var roles = new[] { "SuperAdmin","Admin","JefeOperativo","JefeDeBarra","JefeDeStand","Cajero" };
+            var roles = new[] { "SuperAdmin","Admin","JefeOperativo","JefeDeBarra","JefeDeStand","CajeroDeBarra","Cajero" };
 
             var permissions = new[]
             {
@@ -969,11 +1430,16 @@ public static class AdminEndpoints
                 },
                 ["JefeDeBarra"] = new() {
                     ["dashboard_view"]=true, ["pos_use"]=true, ["topup"]=false, ["charge"]=true,
-                    ["users_manage"]=false, ["areas_manage"]=false, ["products_manage"]=false, ["menus_manage"]=false,
-                    ["operators_manage"]=false, ["reports_view"]=false, ["permissions_view"]=false, ["permissions_manage"]=false
+                    ["users_manage"]=false, ["areas_manage"]=true, ["products_manage"]=false, ["menus_manage"]=true,
+                    ["operators_manage"]=false, ["reports_view"]=true, ["permissions_view"]=false, ["permissions_manage"]=false
                 },
                 ["JefeDeStand"] = new() {
                     ["dashboard_view"]=true, ["pos_use"]=true, ["topup"]=false, ["charge"]=true,
+                    ["users_manage"]=false, ["areas_manage"]=true, ["products_manage"]=false, ["menus_manage"]=true,
+                    ["operators_manage"]=false, ["reports_view"]=true, ["permissions_view"]=false, ["permissions_manage"]=false
+                },
+                ["CajeroDeBarra"] = new() {
+                    ["dashboard_view"]=false, ["pos_use"]=true, ["topup"]=false, ["charge"]=true,
                     ["users_manage"]=false, ["areas_manage"]=false, ["products_manage"]=false, ["menus_manage"]=false,
                     ["operators_manage"]=false, ["reports_view"]=false, ["permissions_view"]=false, ["permissions_manage"]=false
                 },
@@ -992,6 +1458,16 @@ public static class AdminEndpoints
 
     private static IResult Forbidden(string msg = "Forbidden")
         => Results.Json(new { message = msg }, statusCode: 403);
+
+    private static string NormalizeOperatorRoleInput(string? roleRaw)
+    {
+        var raw = (roleRaw ?? string.Empty).Trim();
+        if (string.Equals(raw, "JefeDeCaja", StringComparison.OrdinalIgnoreCase))
+            return OperatorRole.JefeOperativo.ToString();
+        if (string.Equals(raw, "CajeroDeBarra", StringComparison.OrdinalIgnoreCase))
+            return OperatorRole.Bartender.ToString();
+        return raw;
+    }
 
     private static async Task<(Operator? op, IResult? fail)> RequireAdmin(
         CashlessContext db,
@@ -1014,14 +1490,45 @@ public static class AdminEndpoints
         if (op is null) return (null, Results.Unauthorized());
         if (op.Role != OperatorRole.SuperAdmin
             && op.Role != OperatorRole.Admin
-            && op.Role != OperatorRole.JefeDeBarra)
+            && op.Role != OperatorRole.JefeDeBarra
+            && op.Role != OperatorRole.JefeDeStand)
             return (op, Forbidden());
+        return (op, null);
+    }
+
+    private static DateTime? TryParseDateStart(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        return DateTime.TryParse(value, out var parsed)
+            ? parsed.Date
+            : null;
+    }
+
+    private static DateTime? TryParseDateEnd(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        return DateTime.TryParse(value, out var parsed)
+            ? parsed.Date.AddDays(1).AddTicks(-1)
+            : null;
+    }
+
+    private static async Task<(Operator? op, IResult? fail)> RequireUserManager(
+        CashlessContext db,
+        HttpContext http,
+        IAuthService auth)
+    {
+        var op = await auth.AuthenticateAsync(db, http.Request);
+        if (op is null) return (null, Results.Unauthorized());
+        if (op.Role != OperatorRole.SuperAdmin
+            && op.Role != OperatorRole.Admin
+            && op.Role != OperatorRole.JefeOperativo)
+            return (op, Forbidden("Forbidden. Rol sin acceso a usuarios."));
         return (op, null);
     }
 
     private static async Task<IResult> HandleGetUsers(CashlessContext db, HttpContext http, IAuthService auth)
     {
-        var (op, fail) = await RequireAdmin(db, http, auth);
+        var (op, fail) = await RequireUserManager(db, http, auth);
         if (fail is not null) return fail;
         var tenantId = op!.TenantId;
 
@@ -1044,13 +1551,26 @@ public static class AdminEndpoints
         return Results.Ok(users);
     }
 
+    private static string? TryGetSqlitePath(string connectionString)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString)) return null;
+        var parts = connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        foreach (var p in parts)
+        {
+            var kv = p.Split('=', 2, StringSplitOptions.TrimEntries);
+            if (kv.Length == 2 && kv[0].Equals("Data Source", StringComparison.OrdinalIgnoreCase))
+                return kv[1];
+        }
+        return null;
+    }
+
     private static async Task<IResult> HandleCreateUser(
         CashlessContext db,
         HttpContext http,
         IAuthService auth,
         CreateUserRequest req)
     {
-        var (op, fail) = await RequireAdmin(db, http, auth);
+        var (op, fail) = await RequireUserManager(db, http, auth);
         if (fail is not null) return fail;
         var tenantId = op!.TenantId;
 
@@ -1086,8 +1606,7 @@ public static class AdminEndpoints
                 return Results.BadRequest(new { message = "Rol requerido." });
 
             // Compat: si llega "JefeDeCaja", mapear a JefeOperativo
-            if (string.Equals(roleRaw, "JefeDeCaja", StringComparison.OrdinalIgnoreCase))
-                roleRaw = OperatorRole.JefeOperativo.ToString();
+            roleRaw = NormalizeOperatorRoleInput(roleRaw);
 
             if (!Enum.TryParse<OperatorRole>(roleRaw, true, out var parsedRole))
                 return Results.BadRequest(new { message = "Rol inválido." });
@@ -1165,7 +1684,7 @@ public static class AdminEndpoints
         int id,
         UpdateUserContactRequest req)
     {
-        var (op, fail) = await RequireAdmin(db, http, auth);
+        var (op, fail) = await RequireUserManager(db, http, auth);
         if (fail is not null) return fail;
         var tenantId = op!.TenantId;
 
@@ -1191,7 +1710,7 @@ public static class AdminEndpoints
 
     private static async Task<IResult> HandleGetUsersCount(CashlessContext db, HttpContext http, IAuthService auth)
     {
-        var (op, fail) = await RequireAdmin(db, http, auth);
+        var (op, fail) = await RequireUserManager(db, http, auth);
         if (fail is not null) return fail;
         var tenantId = op!.TenantId;
 
@@ -1203,7 +1722,7 @@ public static class AdminEndpoints
 
     private static async Task<IResult> HandleGetUsersSummary(CashlessContext db, HttpContext http, IAuthService auth)
     {
-        var (op, fail) = await RequireAdmin(db, http, auth);
+        var (op, fail) = await RequireUserManager(db, http, auth);
         if (fail is not null) return fail;
         var tenantId = op!.TenantId;
 

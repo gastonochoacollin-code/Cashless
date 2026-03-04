@@ -1,13 +1,25 @@
 // wwwroot/menus.js
 requireSession();
+const roleName = currentRoleName();
+if(roleName !== "JefeDeBarra" && roleName !== "JefeDeStand"){
+  requireUiPermission("menus_manage");
+}
 const role = String(getSession()?.role || getSession()?.Role || "").trim().toLowerCase();
 if(role === "cajero" || role === "cashier"){
   window.location.href = "/dashboard-caja/";
   throw new Error("Forbidden role");
 }
-if (typeof renderAppMenu === "function") {
-  renderAppMenu("appMenu", "/menus.html");
-}
+document.addEventListener("DOMContentLoaded", () => {
+  const host = document.getElementById("appMenu");
+  if(host){
+    host.innerHTML = `<a class="btn alt" href="/ops.html">Ops</a>`;
+  }
+  const backLink = document.querySelector('a[href="/dashboard.html"]');
+  if(backLink){
+    backLink.setAttribute("href", "/ops.html");
+    backLink.textContent = "← Ops";
+  }
+});
 
 function esc(v){
   const s = String(v ?? "");
